@@ -111,14 +111,61 @@ const initialMaintenanceRequests = [
   }
 ];
 
+// Demo data for Pacific Northwest properties
+const demoProperties = [
+  { address: 'Maple Heights Apartments, 1420 N 45th St, Seattle, WA 98103', type: 'Multi-family', units: 12, occupied: 5, monthlyRevenue: 9250 },
+  { address: 'Cedar Park Townhomes, 3305 SE Hawthorne Blvd, Portland, OR 97214', type: 'Townhouse', units: 8, occupied: 3, monthlyRevenue: 6600 },
+  { address: 'Evergreen Commons, 742 E Holly St, Bellingham, WA 98225', type: 'Multi-family', units: 6, occupied: 3, monthlyRevenue: 4950 },
+  { address: 'Olympic View Duplex, 892 Ruston Way, Tacoma, WA 98402', type: 'Duplex', units: 2, occupied: 2, monthlyRevenue: 3900 },
+  { address: 'Cascade Studio Lofts, 2100 Westlake Ave N, Seattle, WA 98109', type: 'Multi-family', units: 10, occupied: 2, monthlyRevenue: 2800 },
+  { address: 'Willamette River House, 456 SW River Dr, Portland, OR 97201', type: 'Single-family', units: 1, occupied: 1, monthlyRevenue: 3200 }
+];
+
+const demoTenants = [
+  { name: 'Sarah Chen', email: 'sarah.chen@email.com', phone: '206-555-0142', property: 'Maple Heights Apartments, Unit 4B', rentAmount: 1850, securityDeposit: 1850, status: 'current', paymentStatus: 'paid', leaseStart: '2025-03-01', leaseEnd: '2026-02-28', notes: '' },
+  { name: 'Marcus Johnson', email: 'mjohnson@email.com', phone: '206-555-0187', property: 'Maple Heights Apartments, Unit 2A', rentAmount: 1850, securityDeposit: 1850, status: 'current', paymentStatus: 'late', leaseStart: '2024-08-01', leaseEnd: '2025-07-31', notes: '' },
+  { name: 'Emily Nakamura', email: 'enakamura@email.com', phone: '503-555-0156', property: 'Cedar Park Townhomes, Unit 3', rentAmount: 2200, securityDeposit: 2200, status: 'current', paymentStatus: 'paid', leaseStart: '2025-01-15', leaseEnd: '2026-01-14', notes: '' },
+  { name: 'David Okonkwo', email: 'dokonkwo@email.com', phone: '503-555-0198', property: 'Cedar Park Townhomes, Unit 7', rentAmount: 2200, securityDeposit: 2200, status: 'current', paymentStatus: 'paid', leaseStart: '2024-11-01', leaseEnd: '2025-10-31', notes: '' },
+  { name: 'Lisa Tran', email: 'ltran@email.com', phone: '360-555-0134', property: 'Evergreen Commons, Unit 1', rentAmount: 1650, securityDeposit: 1650, status: 'current', paymentStatus: 'paid', leaseStart: '2025-02-01', leaseEnd: '2026-01-31', notes: '' },
+  { name: 'James Rodriguez', email: 'jrodriguez@email.com', phone: '253-555-0176', property: 'Olympic View Duplex, Unit A', rentAmount: 1950, securityDeposit: 1950, status: 'current', paymentStatus: 'late', leaseStart: '2024-06-01', leaseEnd: '2025-05-31', notes: '' },
+  { name: 'Rachel Kim', email: 'rkim@email.com', phone: '206-555-0145', property: 'Cascade Studio Lofts, Unit 8', rentAmount: 1400, securityDeposit: 1400, status: 'current', paymentStatus: 'paid', leaseStart: '2025-04-01', leaseEnd: '2026-03-31', notes: '' },
+  { name: 'Michael Foster', email: 'mfoster@email.com', phone: '503-555-0167', property: 'Willamette River House, Unit Main', rentAmount: 3200, securityDeposit: 3200, status: 'current', paymentStatus: 'paid', leaseStart: '2024-09-01', leaseEnd: '2025-08-31', notes: '' },
+  { name: 'Amanda Peters', email: 'apeters@email.com', phone: '206-555-0123', property: 'Maple Heights Apartments, Unit 6C', rentAmount: 1850, securityDeposit: 1850, status: 'current', paymentStatus: 'paid', leaseStart: '2024-12-01', leaseEnd: '2025-11-30', notes: '' },
+  { name: 'Kevin Liu', email: 'kliu@email.com', phone: '360-555-0189', property: 'Unassigned', rentAmount: 0, securityDeposit: 0, status: 'prospect', paymentStatus: null, leaseStart: null, leaseEnd: null, notes: 'Interested in 2BR, moving from Vancouver BC' },
+  { name: 'Jennifer Walsh', email: 'jwalsh@email.com', phone: '253-555-0112', property: 'Olympic View Duplex, Unit B', rentAmount: 1950, securityDeposit: 1950, status: 'current', paymentStatus: 'paid', leaseStart: '2025-01-01', leaseEnd: '2025-12-31', notes: '' },
+  { name: 'Robert Nguyen', email: 'rnguyen@email.com', phone: '206-555-0154', property: 'Cascade Studio Lofts, Unit 3', rentAmount: 1400, securityDeposit: 1400, status: 'past', paymentStatus: null, leaseStart: '2024-01-01', leaseEnd: '2024-12-31', notes: 'Moved to California' },
+  { name: 'Christina Martinez', email: 'cmartinez@email.com', phone: '503-555-0143', property: 'Unassigned', rentAmount: 0, securityDeposit: 0, status: 'prospect', paymentStatus: null, leaseStart: null, leaseEnd: null, notes: 'Application pending, excellent credit' },
+  { name: 'Daniel Park', email: 'dpark@email.com', phone: '206-555-0198', property: 'Maple Heights Apartments, Unit 10D', rentAmount: 1850, securityDeposit: 1850, status: 'current', paymentStatus: 'paid', leaseStart: '2024-07-01', leaseEnd: '2025-06-30', notes: '' },
+  { name: 'Samantha Brooks', email: 'sbrooks@email.com', phone: '360-555-0165', property: 'Evergreen Commons, Unit 2', rentAmount: 1650, securityDeposit: 1650, status: 'current', paymentStatus: 'late', leaseStart: '2024-10-01', leaseEnd: '2025-09-30', notes: '' }
+];
+
+const demoMaintenanceRequests = [
+  { property: 'Maple Heights Apartments, Unit 4B', issue: 'Leaky faucet in bathroom', priority: 'low', status: 'closed', date: '2025-12-15', description: 'Leaky faucet in bathroom' },
+  { property: 'Cedar Park Townhomes, Unit 3', issue: 'Furnace not heating properly', priority: 'high', status: 'in_progress', date: '2026-01-02', description: 'Furnace not heating properly' },
+  { property: 'Evergreen Commons, Unit 1', issue: 'Garbage disposal jammed', priority: 'medium', status: 'open', date: '2026-01-05', description: 'Garbage disposal jammed' },
+  { property: 'Olympic View Duplex, Unit A', issue: 'Front door lock sticking', priority: 'medium', status: 'open', date: '2026-01-04', description: 'Front door lock sticking' },
+  { property: 'Cascade Studio Lofts, Unit 8', issue: 'Window seal broken, drafty', priority: 'high', status: 'in_progress', date: '2025-12-28', description: 'Window seal broken, drafty' },
+  { property: 'Willamette River House, Unit Main', issue: 'Annual HVAC maintenance', priority: 'low', status: 'open', date: '2026-01-06', description: 'Annual HVAC maintenance' },
+  { property: 'Maple Heights Apartments, Unit 2A', issue: 'Smoke detector beeping', priority: 'urgent', status: 'open', date: '2026-01-06', description: 'Smoke detector beeping' },
+  { property: 'Cedar Park Townhomes, Unit 7', issue: 'Dishwasher not draining', priority: 'medium', status: 'closed', date: '2025-12-20', description: 'Dishwasher not draining' }
+];
+
 function App() {
   const [user, setUser] = useState(null);
   const [session, setSession] = useState(null);
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(() => {
+    // Restore active tab from localStorage on mount
+    const savedTab = localStorage.getItem('propli_activeTab');
+    return savedTab || 'dashboard';
+  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    // Restore dark mode from localStorage on mount
+    const savedDarkMode = localStorage.getItem('propli_darkMode');
+    return savedDarkMode === 'true';
+  });
   const [tenants, setTenants] = useState([]);
   const [properties, setProperties] = useState([]);
   const [maintenanceRequests, setMaintenanceRequests] = useState([]);
@@ -127,6 +174,12 @@ function App() {
   const [selectedTenant, setSelectedTenant] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
   const [tenantSearchQuery, setTenantSearchQuery] = useState('');
+  const [dismissedBanners, setDismissedBanners] = useState(() => {
+    // Restore dismissed banners from localStorage
+    const saved = localStorage.getItem('propli_dismissedBanners');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [expiringLeaseIds, setExpiringLeaseIds] = useState([]); // Track IDs of expiring leases for filtering
   const [propertySearchQuery, setPropertySearchQuery] = useState('');
   const [maintenanceSearchQuery, setMaintenanceSearchQuery] = useState('');
   const [maintenanceFilterTab, setMaintenanceFilterTab] = useState('all');
@@ -567,6 +620,22 @@ function App() {
     }
   }, [activeTab, user]);
 
+  // Apply dark mode class to body element
+  useEffect(() => {
+    if (darkMode) {
+      document.body.classList.add('dark-mode');
+      localStorage.setItem('propli_darkMode', 'true');
+    } else {
+      document.body.classList.remove('dark-mode');
+      localStorage.setItem('propli_darkMode', 'false');
+    }
+  }, [darkMode]);
+
+  // Save activeTab to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('propli_activeTab', activeTab);
+  }, [activeTab]);
+
   const handleAuthSuccess = () => {
     // Auth state change will trigger loadData automatically
   };
@@ -576,6 +645,13 @@ function App() {
     if (error) {
       console.error('Error signing out:', error);
       alert('Error signing out');
+    }
+  };
+
+  // Refresh data function (reloads without page refresh)
+  const refreshData = async () => {
+    if (user) {
+      await loadData(user);
     }
   };
 
@@ -822,6 +898,12 @@ function App() {
     return months;
   };
 
+  // Currency formatter function
+  const formatCurrency = (value) => {
+    if (value === null || value === undefined || isNaN(value)) return '$0';
+    return '$' + Number(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  };
+
   // Get recent tenants (last 5)
   const getRecentTenants = () => {
     return tenants
@@ -980,14 +1062,72 @@ function App() {
 
   // Get revenue vs expenses data for last 6 months
   const getRevenueVsExpensesData = () => {
-    // Return sample data for all 6 months
+    // Use demo payment history if available, otherwise return sample data
+    const hasDemoData = tenants.length > 10 && properties.length > 5;
+    
+    if (hasDemoData) {
+      // Calculate from actual tenant payment logs and property expenses
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+      const months = [];
+      
+      for (let i = 0; i < 6; i++) {
+        const monthIndex = i;
+        const currentYear = 2026; // Demo data year
+        
+        // Calculate revenue from payment logs
+        let revenue = 0;
+        tenants
+          .filter(t => t.status === 'current')
+          .forEach(tenant => {
+            if (tenant.paymentLog && tenant.paymentLog.length > 0) {
+              tenant.paymentLog.forEach(payment => {
+                try {
+                  const paymentDate = new Date(payment.date);
+                  if (paymentDate.getMonth() === monthIndex && paymentDate.getFullYear() === currentYear) {
+                    revenue += payment.amount || 0;
+                  }
+                } catch (e) {
+                  // Skip invalid dates
+                }
+              });
+            }
+          });
+        
+        // Calculate expenses from property expenses
+        let expenses = 0;
+        properties.forEach(property => {
+          if (property && property.expenses && property.expenses.length > 0) {
+            property.expenses.forEach(expense => {
+              try {
+                const expenseDate = new Date(expense.date);
+                if (expenseDate.getMonth() === monthIndex && expenseDate.getFullYear() === currentYear) {
+                  expenses += expense.amount || 0;
+                }
+              } catch (e) {
+                // Skip invalid dates
+              }
+            });
+          }
+        });
+        
+        months.push({
+          month: monthNames[i],
+          revenue: Math.round(revenue) || 0,
+          expenses: Math.round(expenses) || 0
+        });
+      }
+      
+      return months;
+    }
+    
+    // Return demo payment history data
     return [
-      { month: 'Jan', revenue: 4000, expenses: 800 },
-      { month: 'Feb', revenue: 4000, expenses: 650 },
-      { month: 'Mar', revenue: 4000, expenses: 1200 },
-      { month: 'Apr', revenue: 4000, expenses: 500 },
-      { month: 'May', revenue: 4000, expenses: 750 },
-      { month: 'Jun', revenue: 4000, expenses: 600 }
+      { month: 'Jan', revenue: 28400, expenses: 4200 },
+      { month: 'Feb', revenue: 28400, expenses: 3100 },
+      { month: 'Mar', revenue: 29250, expenses: 6800 },
+      { month: 'Apr', revenue: 29250, expenses: 2900 },
+      { month: 'May', revenue: 30100, expenses: 3500 },
+      { month: 'Jun', revenue: 30100, expenses: 4100 }
     ];
   };
 
@@ -1570,6 +1710,9 @@ function App() {
     if (filterStatus !== 'all') {
       if (filterStatus === 'late') {
         matchesStatus = t.paymentStatus === 'late';
+      } else if (filterStatus === 'expiring') {
+        // Filter to show only expiring leases
+        matchesStatus = expiringLeaseIds.includes(t.id);
       } else {
         matchesStatus = t.status === filterStatus;
       }
@@ -1699,9 +1842,26 @@ function App() {
     if (!t.leaseEnd || t.status !== 'current') return false;
     const endDate = new Date(t.leaseEnd);
     const today = new Date();
+    today.setHours(0, 0, 0, 0); // Normalize to start of day
     const daysUntilExpiry = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
     return daysUntilExpiry <= 90 && daysUntilExpiry >= 0;
   });
+
+  // Update expiring lease IDs when expiringLeases changes
+  useEffect(() => {
+    const ids = expiringLeases.map(t => t.id);
+    const idsString = ids.sort().join(',');
+    const currentIdsString = expiringLeaseIds.sort().join(',');
+    if (idsString !== currentIdsString) {
+      setExpiringLeaseIds(ids);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expiringLeases.length, expiringLeases.map(t => `${t.id}-${t.leaseEnd}`).join(',')]);
+
+  // Save dismissed banners to localStorage
+  useEffect(() => {
+    localStorage.setItem('propli_dismissedBanners', JSON.stringify(dismissedBanners));
+  }, [dismissedBanners]);
 
   const stats = {
     totalTenants: tenants.filter(t => t.status === 'current').length,
@@ -2321,6 +2481,109 @@ function App() {
       alert('Error updating photo');
     } finally {
       setPropertyPhotoUploading(false);
+    }
+  };
+
+  // Load demo data function
+  const loadDemoData = async () => {
+    if (!user) {
+      alert('Please log in first');
+      return;
+    }
+
+    if (!confirm('This will replace all existing data with demo data. Are you sure?')) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // First, delete all existing data
+      await supabase.from('tenants').delete().eq('user_id', user.id);
+      await supabase.from('properties').delete().eq('user_id', user.id);
+      await supabase.from('maintenance_requests').delete().eq('user_id', user.id);
+
+      // Add demo properties with expenses for charts
+      const totalExpenses = [4200, 3100, 6800, 2900, 3500, 4100]; // Jan-Jun total expenses
+      const propertiesWithExpenses = demoProperties.map((prop, index) => {
+        // Distribute expenses across properties (each property gets a portion)
+        const expenses = [];
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+        const expensePerProperty = totalExpenses.map(total => Math.round(total / demoProperties.length));
+        
+        monthNames.forEach((month, monthIndex) => {
+          expenses.push({
+            description: `${month} maintenance and utilities`,
+            amount: expensePerProperty[monthIndex],
+            date: `2026-${String(monthIndex + 1).padStart(2, '0')}-15`,
+            category: monthIndex % 2 === 0 ? 'maintenance' : 'utilities'
+          });
+        });
+
+        return {
+          ...prop,
+          expenses
+        };
+      });
+
+      // Insert properties
+      const { data: insertedProperties, error: propertiesError } = await supabase
+        .from('properties')
+        .insert(propertiesWithExpenses.map(transformPropertyForDB))
+        .select();
+
+      if (propertiesError) throw propertiesError;
+
+      // Add demo tenants with payment logs for charts
+      const tenantsWithPayments = demoTenants.map((tenant, index) => {
+        const paymentLog = [];
+        
+        // Only add payment logs for current tenants with paid status
+        if (tenant.status === 'current' && tenant.paymentStatus === 'paid') {
+          const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+          monthNames.forEach((month, monthIndex) => {
+            // Add payment for this month
+            paymentLog.push({
+              amount: tenant.rentAmount,
+              date: `2026-${String(monthIndex + 1).padStart(2, '0')}-01`,
+              method: 'check',
+              notes: `${month} rent payment`
+            });
+          });
+        }
+
+        return {
+          ...tenant,
+          paymentLog,
+          accessCode: generateAccessCode()
+        };
+      });
+
+      // Insert tenants
+      const { error: tenantsError } = await supabase
+        .from('tenants')
+        .insert(tenantsWithPayments.map(transformTenantForDB));
+
+      if (tenantsError) throw tenantsError;
+
+      // Add maintenance requests
+      const { error: maintenanceError } = await supabase
+        .from('maintenance_requests')
+        .insert(demoMaintenanceRequests.map(req => transformMaintenanceRequestForDB({
+          ...req,
+          tenantId: null,
+          tenantName: req.property.split(',')[0] || ''
+        })));
+
+      if (maintenanceError) throw maintenanceError;
+
+      // Reload data
+      await loadData(user);
+      alert('Demo data loaded successfully!');
+    } catch (error) {
+      console.error('Error loading demo data:', error);
+      alert('Error loading demo data: ' + error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -3062,41 +3325,43 @@ function App() {
                       <button
                         onClick={() => setDarkMode(!darkMode)}
                         style={{
-                          background: 'none',
+                          background: darkMode ? '#303134' : '#fff',
                           border: '1px solid #dadce0',
-                          borderRadius: '4px',
-                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          padding: '8px',
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '8px',
-                          color: '#5f6368',
-                          fontSize: '14px'
+                          justifyContent: 'center',
+                          width: '40px',
+                          height: '40px',
+                          color: darkMode ? '#e8eaed' : '#5f6368',
+                          transition: 'all 0.2s'
                         }}
-                        title="Toggle dark mode"
+                        title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = darkMode ? '#3c4043' : '#f5f5f5';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = darkMode ? '#303134' : '#fff';
+                        }}
                       >
                         {darkMode ? (
-                          <>
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <circle cx="12" cy="12" r="5"></circle>
-                              <line x1="12" y1="1" x2="12" y2="3"></line>
-                              <line x1="12" y1="21" x2="12" y2="23"></line>
-                              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-                              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-                              <line x1="1" y1="12" x2="3" y2="12"></line>
-                              <line x1="21" y1="12" x2="23" y2="12"></line>
-                              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-                              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-                            </svg>
-                            Light
-                          </>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <circle cx="12" cy="12" r="5"></circle>
+                            <line x1="12" y1="1" x2="12" y2="3"></line>
+                            <line x1="12" y1="21" x2="12" y2="23"></line>
+                            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                            <line x1="1" y1="12" x2="3" y2="12"></line>
+                            <line x1="21" y1="12" x2="23" y2="12"></line>
+                            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                          </svg>
                         ) : (
-                          <>
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-                            </svg>
-                            Dark
-                          </>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                          </svg>
                         )}
                       </button>
                     </div>
@@ -3239,6 +3504,7 @@ function App() {
                           <YAxis 
                             stroke="#5f6368"
                             tick={{ fill: '#5f6368', fontSize: 12 }}
+                            tickFormatter={(value) => formatCurrency(value)}
                           />
                           <Tooltip 
                             contentStyle={{ 
@@ -3247,6 +3513,7 @@ function App() {
                               borderRadius: '4px',
                               padding: '8px'
                             }}
+                            formatter={(value) => formatCurrency(value)}
                           />
                           <Bar dataKey="revenue" fill="#1a73e8" radius={[4, 4, 0, 0]} />
                         </BarChart>
@@ -3358,7 +3625,7 @@ function App() {
                           </div>
                           <div style={{ textAlign: 'right', marginRight: '16px' }}>
                             <div style={{ fontSize: '16px', fontWeight: '400', color: '#202124', marginBottom: '4px' }}>
-                              ${tenant.rentAmount.toLocaleString()}
+                              {formatCurrency(tenant.rentAmount)}
                             </div>
                             <span
                               style={{
@@ -3385,46 +3652,134 @@ function App() {
               )}
 
               {/* Late Payments Banner */}
-              {stats.latePayments > 0 && activeTab !== 'dashboard' && (
-                <div className="alert-banner" style={{ background: '#fee2e2', borderColor: '#fecaca' }}>
-                <div className="alert-content">
+              {stats.latePayments > 0 && activeTab !== 'dashboard' && !dismissedBanners.includes('late-payments') && (
+                <div className="alert-banner" style={{ background: '#fee2e2', borderColor: '#fecaca', marginBottom: '16px' }}>
+                <div className="alert-content" style={{ flex: 1, minWidth: 0 }}>
                   <span className="alert-icon">💰</span>
-                  <div className="alert-text">
+                  <div className="alert-text" style={{ wordWrap: 'break-word', overflowWrap: 'break-word' }}>
                     <strong>You have {stats.latePayments} tenant{stats.latePayments > 1 ? 's' : ''} with late payments</strong>
                   </div>
                 </div>
-                <button 
-                  className="alert-action"
-                  onClick={() => {
-                    setActiveTab('tenants');
-                    setFilterStatus('late');
-                  }}
-                >
-                  View Late Tenants
-                </button>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexShrink: 0 }}>
+                  <button 
+                    className="alert-action"
+                    onClick={() => {
+                      setActiveTab('tenants');
+                      setFilterStatus('late');
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#1a73e8',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      padding: '0',
+                      textDecoration: 'none',
+                      whiteSpace: 'nowrap'
+                    }}
+                    onMouseEnter={(e) => e.target.style.textDecoration = 'underline'}
+                    onMouseLeave={(e) => e.target.style.textDecoration = 'none'}
+                  >
+                    View Late Tenants
+                  </button>
+                  <button
+                    onClick={() => {
+                      setDismissedBanners([...dismissedBanners, 'late-payments']);
+                      // Reset filter if currently on late filter
+                      if (filterStatus === 'late' && activeTab === 'tenants') {
+                        setFilterStatus('all');
+                      }
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#5f6368',
+                      cursor: 'pointer',
+                      padding: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: '4px'
+                    }}
+                    onMouseEnter={(e) => e.target.style.background = 'rgba(0,0,0,0.05)'}
+                    onMouseLeave={(e) => e.target.style.background = 'none'}
+                    title="Dismiss"
+                    aria-label="Dismiss alert"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18"></line>
+                      <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                  </button>
+                </div>
               </div>
             )}
 
-            {expiringLeases.length > 0 && (
-              <div className="alert-banner">
-                <div className="alert-content">
+            {expiringLeases.length > 0 && !dismissedBanners.includes('expiring-leases') && (
+              <div className="alert-banner" style={{ marginBottom: '16px' }}>
+                <div className="alert-content" style={{ flex: 1, minWidth: 0 }}>
                   <span className="alert-icon">⚠️</span>
-                  <div className="alert-text">
+                  <div className="alert-text" style={{ wordWrap: 'break-word', overflowWrap: 'break-word' }}>
                     <strong>{expiringLeases.length} lease{expiringLeases.length > 1 ? 's' : ''} expiring within 90 days:</strong>
-                    <span className="alert-tenants">
+                    <span className="alert-tenants" style={{ display: 'block', marginTop: '4px', wordWrap: 'break-word', overflowWrap: 'break-word' }}>
                       {expiringLeases.map(t => t.name).join(', ')}
                     </span>
                   </div>
                 </div>
-                <button 
-                  className="alert-action"
-                  onClick={() => {
-                    setActiveTab('tenants');
-                    setFilterStatus('current');
-                  }}
-                >
-                  View Tenants
-                </button>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexShrink: 0 }}>
+                  <button 
+                    className="alert-action"
+                    onClick={() => {
+                      setActiveTab('tenants');
+                      setFilterStatus('expiring');
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#1a73e8',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      padding: '0',
+                      textDecoration: 'none',
+                      whiteSpace: 'nowrap'
+                    }}
+                    onMouseEnter={(e) => e.target.style.textDecoration = 'underline'}
+                    onMouseLeave={(e) => e.target.style.textDecoration = 'none'}
+                  >
+                    View Expiring Leases
+                  </button>
+                  <button
+                    onClick={() => {
+                      setDismissedBanners([...dismissedBanners, 'expiring-leases']);
+                      // Reset filter if currently on expiring filter
+                      if (filterStatus === 'expiring' && activeTab === 'tenants') {
+                        setFilterStatus('all');
+                      }
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#5f6368',
+                      cursor: 'pointer',
+                      padding: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      borderRadius: '4px'
+                    }}
+                    onMouseEnter={(e) => e.target.style.background = 'rgba(0,0,0,0.05)'}
+                    onMouseLeave={(e) => e.target.style.background = 'none'}
+                    title="Dismiss"
+                    aria-label="Dismiss alert"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="18" y1="6" x2="6" y2="18"></line>
+                      <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                  </button>
+                </div>
               </div>
             )}
 
@@ -3527,6 +3882,7 @@ function App() {
                         <option value="prospect">Prospects</option>
                         <option value="past">Past</option>
                         <option value="late">Late Payments</option>
+                        {expiringLeases.length > 0 && <option value="expiring">Expiring Leases</option>}
                       </select>
                       <svg 
                         width="16" 
@@ -4833,8 +5189,13 @@ function App() {
                           <BarChart data={getRevenueVsExpensesData()}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                             <XAxis dataKey="month" stroke="#6b7280" />
-                            <YAxis stroke="#6b7280" />
-                            <Tooltip />
+                            <YAxis 
+                              stroke="#6b7280" 
+                              tickFormatter={(value) => formatCurrency(value)}
+                            />
+                            <Tooltip 
+                              formatter={(value, name) => [formatCurrency(value), name]}
+                            />
                             <Legend wrapperStyle={{paddingTop: '20px'}} />
                             <Bar dataKey="revenue" fill="#1a73e8" name="Revenue" />
                             <Bar dataKey="expenses" fill="#f97316" name="Expenses" />
@@ -4880,7 +5241,7 @@ function App() {
                                 return <Cell key={`cell-${index}`} fill={color} />;
                               })}
                             </Pie>
-                            <Tooltip />
+                            <Tooltip formatter={(value) => formatCurrency(value)} />
                           </PieChart>
                         </ResponsiveContainer>
                         {/* Custom Legend */}
@@ -4924,7 +5285,7 @@ function App() {
                                   <p style={{margin: 0, fontSize: '14px', fontWeight: '500', color: '#202124'}}>{property.name || property.address}</p>
                                   <p style={{margin: '4px 0 0', fontSize: '12px', color: '#5f6368'}}>{property.propertyOccupied}/{property.propertyUnits} units occupied</p>
                                 </div>
-                                <p style={{margin: 0, fontSize: '14px', fontWeight: '500', color: '#202124'}}>{'$' + property.propertyRevenue.toLocaleString()}</p>
+                                <p style={{margin: 0, fontSize: '14px', fontWeight: '500', color: '#202124'}}>{formatCurrency(property.propertyRevenue)}</p>
                               </div>
                             );
                           })}
@@ -5602,6 +5963,39 @@ function App() {
                               Save Changes
                             </button>
                           </div>
+                        </div>
+
+                        {/* Demo Data Section */}
+                        <div style={{
+                          background: '#fff',
+                          border: '1px solid #dadce0',
+                          borderRadius: '12px',
+                          padding: '24px',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                          marginBottom: '20px'
+                        }}>
+                          <h3 style={{ fontSize: '18px', fontWeight: '500', color: '#202124', margin: '0 0 16px 0' }}>Demo Data</h3>
+                          <p style={{ fontSize: '14px', color: '#5f6368', margin: '0 0 20px 0' }}>
+                            Load sample data for Propli based in the Pacific Northwest. This includes 6 properties, 15 tenants, 8 maintenance requests, and 6 months of payment history.
+                          </p>
+                          <button
+                            className="btn-primary"
+                            onClick={loadDemoData}
+                            disabled={loading}
+                            style={{
+                              background: '#1a73e8',
+                              color: '#fff',
+                              border: 'none',
+                              borderRadius: '4px',
+                              padding: '10px 24px',
+                              fontSize: '14px',
+                              fontWeight: '500',
+                              cursor: loading ? 'not-allowed' : 'pointer',
+                              opacity: loading ? 0.6 : 1
+                            }}
+                          >
+                            {loading ? 'Loading...' : 'Load Demo Data'}
+                          </button>
                         </div>
 
                         {/* Import/Export Section */}
@@ -6449,7 +6843,40 @@ function App() {
                   )}
                 </div>
               </div>
-              <button className="close-btn" onClick={() => setSelectedTenant(null)}>×</button>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  className="btn-secondary"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    await refreshData();
+                    // Reload the selected tenant data
+                    const { data: tenantData } = await supabase
+                      .from('tenants')
+                      .select('*')
+                      .eq('id', selectedTenant.id)
+                      .single();
+                    if (tenantData) {
+                      setSelectedTenant(transformTenant(tenantData));
+                    }
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                  title="Refresh data"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                  </svg>
+                  Refresh
+                </button>
+                <button className="close-btn" onClick={() => setSelectedTenant(null)}>×</button>
+              </div>
             </div>
             <div className="tenant-detail-view modal-content-scrollable">
               <div className="detail-section">
@@ -7105,7 +7532,31 @@ function App() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Payment Log - {tenants.find(t => t.id === showPaymentLog)?.name}</h2>
-              <button className="close-btn" onClick={() => setShowPaymentLog(null)}>×</button>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  className="btn-secondary"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    await refreshData();
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                  title="Refresh data"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                  </svg>
+                  Refresh
+                </button>
+                <button className="close-btn" onClick={() => setShowPaymentLog(null)}>×</button>
+              </div>
             </div>
             <div className="modal-content">
               <form onSubmit={(e) => handleAddPayment(showPaymentLog, e)}>
@@ -7174,7 +7625,31 @@ function App() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Activity Log - {tenants.find(t => t.id === showActivityLog)?.name}</h2>
-              <button className="close-btn" onClick={() => setShowActivityLog(null)}>×</button>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  className="btn-secondary"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    await refreshData();
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                  title="Refresh data"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                  </svg>
+                  Refresh
+                </button>
+                <button className="close-btn" onClick={() => setShowActivityLog(null)}>×</button>
+              </div>
             </div>
             <div className="modal-content">
               <form onSubmit={(e) => handleAddActivity(showActivityLog, e)}>
