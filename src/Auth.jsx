@@ -79,7 +79,7 @@ export default function Auth({ onAuthSuccess }) {
     <div className="auth-container">
       <div className="auth-card">
         <div className="auth-header">
-          <h1>PropManager CRM</h1>
+          <h1>Propli CRM</h1>
           <p>Property Management System</p>
         </div>
 

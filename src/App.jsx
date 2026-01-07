@@ -373,7 +373,7 @@ function App() {
       const { data, error } = await supabase.functions.invoke('send-sms', {
         body: {
           to: testSmsPhone,
-          message: 'This is a test message from PropManager. SMS notifications are working!',
+          message: 'This is a test message from Propli. SMS notifications are working!',
           accountSid: twilioSettings.accountSid,
           authToken: twilioSettings.authToken,
           fromNumber: twilioSettings.phoneNumber
@@ -2521,7 +2521,7 @@ function App() {
               <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
               <polyline points="9 22 9 12 15 12 15 22"></polyline>
             </svg>
-            <span>PropManager</span>
+            <span>Propli</span>
           </a>
         </div>
         <div className="header-search">
