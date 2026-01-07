@@ -128,6 +128,8 @@ function App() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [tenantSearchQuery, setTenantSearchQuery] = useState('');
   const [propertySearchQuery, setPropertySearchQuery] = useState('');
+  const [maintenanceSearchQuery, setMaintenanceSearchQuery] = useState('');
+  const [maintenanceFilterTab, setMaintenanceFilterTab] = useState('all');
   const [confirmPaymentChange, setConfirmPaymentChange] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [showPaymentLog, setShowPaymentLog] = useState(null);
@@ -146,6 +148,7 @@ function App() {
   const [showDeletePropertyConfirm, setShowDeletePropertyConfirm] = useState(null);
   const [showAddMaintenanceModal, setShowAddMaintenanceModal] = useState(false);
   const [newMaintenanceRequest, setNewMaintenanceRequest] = useState({ tenantId: '', tenantName: '', property: '', issue: '', priority: 'medium', description: '', date: new Date().toISOString().split('T')[0] });
+  const [selectedMaintenanceRequest, setSelectedMaintenanceRequest] = useState(null);
   const [reportMonth, setReportMonth] = useState('');
   const [editingTenant, setEditingTenant] = useState(null);
   const [ownerStatementProperty, setOwnerStatementProperty] = useState('');
@@ -830,6 +833,61 @@ function App() {
     const date = new Date(leaseEnd);
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+  };
+
+  // Format time ago
+  const formatTimeAgo = (dateString) => {
+    if (!dateString) return 'Unknown';
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    return date.toLocaleDateString();
+  };
+
+  // Get priority badge style
+  const getPriorityBadgeStyle = (priority) => {
+    const priorityLower = (priority || 'medium').toLowerCase();
+    const styles = {
+      low: { background: '#f3f4f6', color: '#4b5563' },
+      medium: { background: '#fef3c7', color: '#92400e' },
+      high: { background: '#ffedd5', color: '#c2410c' },
+      urgent: { background: '#fee2e2', color: '#991b1b' }
+    };
+    return styles[priorityLower] || styles.medium;
+  };
+
+  // Get status badge style
+  const getMaintenanceStatusBadgeStyle = (status) => {
+    const statusLower = (status || 'open').toLowerCase();
+    // Map 'open' to 'Pending', 'in_progress' to 'Active', 'closed'/'completed' to 'Completed'
+    let mappedStatus = statusLower;
+    if (statusLower === 'open') mappedStatus = 'pending';
+    if (statusLower === 'in_progress' || statusLower === 'in progress') mappedStatus = 'active';
+    if (statusLower === 'closed' || statusLower === 'completed') mappedStatus = 'completed';
+    
+    const styles = {
+      pending: { background: '#fef3c7', color: '#92400e' },
+      active: { background: '#dbeafe', color: '#1e40af' },
+      completed: { background: '#dcfce7', color: '#166534' }
+    };
+    return styles[mappedStatus] || styles.pending;
+  };
+
+  // Get status display name
+  const getMaintenanceStatusDisplay = (status) => {
+    const statusLower = (status || 'open').toLowerCase();
+    if (statusLower === 'open') return 'Pending';
+    if (statusLower === 'in_progress' || statusLower === 'in progress') return 'Active';
+    if (statusLower === 'closed' || statusLower === 'completed') return 'Completed';
+    return status.charAt(0).toUpperCase() + status.slice(1);
   };
 
   const getActionItems = () => {
@@ -4062,65 +4120,412 @@ function App() {
 
               {activeTab === 'maintenance' && (
                 <div className="content-section">
-            <div className="section-header">
-              <h2>Maintenance Requests</h2>
-              <button className="btn-primary" onClick={() => setShowAddMaintenanceModal(true)}>+ New Request</button>
-            </div>
-
-            <div className="maintenance-list">
-              {maintenanceRequests.filter(req => req.status === 'open').map(request => (
-                <div key={request.id} className="maintenance-card">
-                  <div className="maintenance-header">
-                    <h3>{request.issue}</h3>
-                    <div className="maintenance-badges">
-                      <span className="badge" style={{
-                        background: request.priority === 'high' ? '#fee2e2' : 
-                                   request.priority === 'medium' ? '#fef3c7' : '#dbeafe',
-                        color: request.priority === 'high' ? '#991b1b' : 
-                               request.priority === 'medium' ? '#92400e' : '#1e40af'
-                      }}>
-                        {request.priority}
-                      </span>
-                      <span className="badge" style={{ background: '#dbeafe', color: '#1e40af' }}>
-                        {request.status}
-                      </span>
+                  {/* Header */}
+                  <div style={{ marginBottom: '24px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <div>
+                        <h1 style={{ fontSize: '32px', fontWeight: '400', color: '#202124', margin: '0 0 8px 0' }}>Maintenance</h1>
+                        <p style={{ fontSize: '14px', color: '#5f6368', margin: 0 }}>Track and manage maintenance requests</p>
+                      </div>
+                      <button 
+                        className="btn-primary" 
+                        onClick={() => setShowAddMaintenanceModal(true)}
+                        style={{
+                          background: '#1a73e8',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '4px',
+                          padding: '10px 24px',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px'
+                        }}
+                      >
+                        + New Request
+                      </button>
                     </div>
                   </div>
-                  <div className="maintenance-fields">
-                    <div className="maintenance-field">
-                      <span className="field-label">Unit:</span>
-                      <span className="field-value">{request.property}</span>
+
+                  {/* Stats Cards Row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
+                    {(() => {
+                      const pending = maintenanceRequests.filter(r => {
+                        const status = (r.status || 'open').toLowerCase();
+                        return status === 'open';
+                      }).length;
+                      
+                      const inProgress = maintenanceRequests.filter(r => {
+                        const status = (r.status || '').toLowerCase();
+                        return status === 'in_progress' || status === 'in progress';
+                      }).length;
+                      
+                      const completed = maintenanceRequests.filter(r => {
+                        const status = (r.status || '').toLowerCase();
+                        return status === 'closed' || status === 'completed';
+                      }).length;
+                      
+                      return (
+                        <>
+                          {/* Pending Card */}
+                          <div style={{
+                            background: '#fff',
+                            border: '1px solid #dadce0',
+                            borderRadius: '8px',
+                            padding: '20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '16px'
+                          }}>
+                            <div style={{
+                              width: '48px',
+                              height: '48px',
+                              borderRadius: '50%',
+                              background: '#fff7ed',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0
+                            }}>
+                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#c2410c" strokeWidth="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polyline points="12 6 12 12 16 14"></polyline>
+                              </svg>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '14px', color: '#5f6368', marginBottom: '4px' }}>Pending</div>
+                              <div style={{ fontSize: '32px', fontWeight: '400', color: '#202124' }}>{pending}</div>
+                            </div>
+                          </div>
+
+                          {/* In Progress Card */}
+                          <div style={{
+                            background: '#fff',
+                            border: '1px solid #dadce0',
+                            borderRadius: '8px',
+                            padding: '20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '16px'
+                          }}>
+                            <div style={{
+                              width: '48px',
+                              height: '48px',
+                              borderRadius: '50%',
+                              background: '#e8f0fe',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0
+                            }}>
+                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" strokeWidth="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polyline points="12 6 12 12 16 14"></polyline>
+                              </svg>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '14px', color: '#5f6368', marginBottom: '4px' }}>In Progress</div>
+                              <div style={{ fontSize: '32px', fontWeight: '400', color: '#202124' }}>{inProgress}</div>
+                            </div>
+                          </div>
+
+                          {/* Completed Card */}
+                          <div style={{
+                            background: '#fff',
+                            border: '1px solid #dadce0',
+                            borderRadius: '8px',
+                            padding: '20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '16px'
+                          }}>
+                            <div style={{
+                              width: '48px',
+                              height: '48px',
+                              borderRadius: '50%',
+                              background: '#dcfce7',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0
+                            }}>
+                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#166534" strokeWidth="2">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                              </svg>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '14px', color: '#5f6368', marginBottom: '4px' }}>Completed</div>
+                              <div style={{ fontSize: '32px', fontWeight: '400', color: '#202124' }}>{completed}</div>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Search and Filter Bar */}
+                  <div style={{ 
+                    display: 'flex', 
+                    gap: '12px', 
+                    marginBottom: '16px',
+                    alignItems: 'center'
+                  }}>
+                    <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
+                      <input
+                        type="text"
+                        placeholder="Search requests..."
+                        value={maintenanceSearchQuery}
+                        onChange={(e) => setMaintenanceSearchQuery(e.target.value)}
+                        style={{
+                          width: '100%',
+                          height: '40px',
+                          padding: '0 16px 0 40px',
+                          border: '1px solid #dadce0',
+                          borderRadius: '4px',
+                          fontSize: '14px',
+                          color: '#202124'
+                        }}
+                      />
+                      <svg 
+                        width="20" 
+                        height="20" 
+                        viewBox="0 0 24 24" 
+                        fill="none" 
+                        stroke="#5f6368" 
+                        strokeWidth="2"
+                        style={{
+                          position: 'absolute',
+                          left: '12px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          pointerEvents: 'none'
+                        }}
+                      >
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <path d="m21 21-4.35-4.35"></path>
+                      </svg>
                     </div>
-                    <div className="maintenance-field">
-                      <span className="field-label">Issue Description:</span>
-                      <span className="field-value">{request.description || request.issue}</span>
-                    </div>
-                    <div className="maintenance-field">
-                      <span className="field-label">Priority:</span>
-                      <span className="field-value" style={{
-                        color: request.priority === 'high' ? '#991b1b' : 
-                               request.priority === 'medium' ? '#92400e' : '#1e40af',
-                        fontWeight: '500'
+                    <button
+                      style={{
+                        height: '40px',
+                        padding: '0 16px',
+                        border: '1px solid #dadce0',
+                        borderRadius: '4px',
+                        background: '#fff',
+                        color: '#202124',
+                        fontSize: '14px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                      }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                      </svg>
+                      Filter
+                    </button>
+                  </div>
+
+                  {/* Tab Navigation */}
+                  <div style={{
+                    display: 'flex',
+                    gap: '0',
+                    borderBottom: '1px solid #dadce0',
+                    marginBottom: '24px'
+                  }}>
+                    {['all', 'pending', 'active', 'completed'].map(tab => {
+                      const isActive = maintenanceFilterTab === tab;
+                      return (
+                        <button
+                          key={tab}
+                          onClick={() => setMaintenanceFilterTab(tab)}
+                          style={{
+                            padding: '12px 24px',
+                            border: 'none',
+                            background: 'none',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            color: isActive ? '#1a73e8' : '#5f6368',
+                            cursor: 'pointer',
+                            borderBottom: isActive ? '2px solid #1a73e8' : '2px solid transparent',
+                            marginBottom: '-1px',
+                            textTransform: 'capitalize'
+                          }}
+                        >
+                          {tab === 'all' ? 'All' : tab === 'pending' ? 'Pending' : tab === 'active' ? 'Active' : 'Completed'}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Request Cards */}
+                  <div>
+                    {maintenanceRequests
+                      .filter(request => {
+                        // Status filter
+                        const status = (request.status || 'open').toLowerCase();
+                        let matchesStatus = true;
+                        if (maintenanceFilterTab === 'pending') {
+                          matchesStatus = status === 'open';
+                        } else if (maintenanceFilterTab === 'active') {
+                          matchesStatus = status === 'in_progress' || status === 'in progress';
+                        } else if (maintenanceFilterTab === 'completed') {
+                          matchesStatus = status === 'closed' || status === 'completed';
+                        }
+                        
+                        // Search filter
+                        const matchesSearch = !maintenanceSearchQuery || !maintenanceSearchQuery.trim() ||
+                          (request.issue && request.issue.toLowerCase().includes(maintenanceSearchQuery.toLowerCase())) ||
+                          (request.description && request.description.toLowerCase().includes(maintenanceSearchQuery.toLowerCase())) ||
+                          (request.property && request.property.toLowerCase().includes(maintenanceSearchQuery.toLowerCase())) ||
+                          (request.tenantName && request.tenantName.toLowerCase().includes(maintenanceSearchQuery.toLowerCase()));
+                        
+                        return matchesStatus && matchesSearch;
+                      })
+                      .map(request => {
+                        const priorityStyle = getPriorityBadgeStyle(request.priority);
+                        const statusStyle = getMaintenanceStatusBadgeStyle(request.status);
+                        const statusDisplay = getMaintenanceStatusDisplay(request.status);
+                        const unit = extractUnitNumber(request.property);
+                        const propertyName = request.property ? request.property.replace(/\s*(?:Unit|Apt|Apartment|#)\s*[A-Z0-9]+/i, '').trim() : request.property;
+                        
+                        return (
+                          <div
+                            key={request.id}
+                            onClick={() => {
+                              setSelectedMaintenanceRequest(request);
+                            }}
+                            style={{
+                              background: '#fff',
+                              borderRadius: '8px',
+                              padding: '16px',
+                              marginBottom: '12px',
+                              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                              cursor: 'pointer',
+                              transition: 'box-shadow 0.2s',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'flex-start'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+                            }}
+                          >
+                            <div style={{ flex: 1 }}>
+                              {/* Issue Title with Priority Badge */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                <h3 style={{
+                                  fontSize: '16px',
+                                  fontWeight: '600',
+                                  color: '#202124',
+                                  margin: 0
+                                }}>
+                                  {request.issue}
+                                </h3>
+                                <span
+                                  style={{
+                                    fontSize: '11px',
+                                    padding: '3px 8px',
+                                    borderRadius: '12px',
+                                    fontWeight: '500',
+                                    ...priorityStyle
+                                  }}
+                                >
+                                  {(request.priority || 'medium').toUpperCase()}
+                                </span>
+                              </div>
+
+                              {/* Description */}
+                              {request.description && (
+                                <p style={{
+                                  fontSize: '14px',
+                                  color: '#5f6368',
+                                  margin: '0 0 12px 0',
+                                  lineHeight: '1.5'
+                                }}>
+                                  {request.description}
+                                </p>
+                              )}
+
+                              {/* Details Row */}
+                              <div style={{
+                                display: 'flex',
+                                gap: '16px',
+                                fontSize: '13px',
+                                color: '#5f6368',
+                                marginBottom: '8px',
+                                flexWrap: 'wrap'
+                              }}>
+                                <span>{propertyName || 'N/A'}</span>
+                                {unit && unit !== request.property && <span>• {unit}</span>}
+                                {request.tenantName && <span>• {request.tenantName}</span>}
+                                <span>• {formatTimeAgo(request.date)}</span>
+                              </div>
+
+                              {/* Assigned to */}
+                              {request.assignedTo && (
+                                <div style={{
+                                  fontSize: '13px',
+                                  color: '#5f6368',
+                                  marginTop: '4px'
+                                }}>
+                                  Assigned to: {request.assignedTo}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Status Badge */}
+                            <div style={{ marginLeft: '16px', flexShrink: 0 }}>
+                              <span
+                                style={{
+                                  fontSize: '12px',
+                                  padding: '4px 12px',
+                                  borderRadius: '12px',
+                                  fontWeight: '500',
+                                  display: 'inline-block',
+                                  ...statusStyle
+                                }}
+                              >
+                                {statusDisplay}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    {maintenanceRequests.filter(request => {
+                      const status = (request.status || 'open').toLowerCase();
+                      let matchesStatus = true;
+                      if (maintenanceFilterTab === 'pending') {
+                        matchesStatus = status === 'open';
+                      } else if (maintenanceFilterTab === 'active') {
+                        matchesStatus = status === 'in_progress' || status === 'in progress';
+                      } else if (maintenanceFilterTab === 'completed') {
+                        matchesStatus = status === 'closed' || status === 'completed';
+                      }
+                      const matchesSearch = !maintenanceSearchQuery || !maintenanceSearchQuery.trim() ||
+                        (request.issue && request.issue.toLowerCase().includes(maintenanceSearchQuery.toLowerCase())) ||
+                        (request.description && request.description.toLowerCase().includes(maintenanceSearchQuery.toLowerCase())) ||
+                        (request.property && request.property.toLowerCase().includes(maintenanceSearchQuery.toLowerCase())) ||
+                        (request.tenantName && request.tenantName.toLowerCase().includes(maintenanceSearchQuery.toLowerCase()));
+                      return matchesStatus && matchesSearch;
+                    }).length === 0 && (
+                      <div style={{
+                        textAlign: 'center',
+                        padding: '40px',
+                        color: '#5f6368'
                       }}>
-                        {request.priority.charAt(0).toUpperCase() + request.priority.slice(1)}
-                      </span>
-                    </div>
-                    <div className="maintenance-field">
-                      <span className="field-label">Status:</span>
-                      <span className="field-value" style={{ fontWeight: '500' }}>
-                        {request.status.charAt(0).toUpperCase() + request.status.slice(1)}
-                      </span>
-                    </div>
-                    <div className="maintenance-field">
-                      <span className="field-label">Date Submitted:</span>
-                      <span className="field-value">{new Date(request.date).toLocaleDateString()}</span>
-                    </div>
+                        No maintenance requests found
+                      </div>
+                    )}
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
+              )}
 
               {activeTab === 'reports' && (
                 <div className="content-section">
