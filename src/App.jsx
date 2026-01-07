@@ -149,7 +149,9 @@ function App() {
   const [showAddMaintenanceModal, setShowAddMaintenanceModal] = useState(false);
   const [newMaintenanceRequest, setNewMaintenanceRequest] = useState({ tenantId: '', tenantName: '', property: '', issue: '', priority: 'medium', description: '', date: new Date().toISOString().split('T')[0] });
   const [selectedMaintenanceRequest, setSelectedMaintenanceRequest] = useState(null);
-  const [reportMonth, setReportMonth] = useState('');
+  const [reportMonth, setReportMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [propertySortField, setPropertySortField] = useState(null);
+  const [propertySortDirection, setPropertySortDirection] = useState('asc');
   const [editingTenant, setEditingTenant] = useState(null);
   const [ownerStatementProperty, setOwnerStatementProperty] = useState('');
   const [ownerStatementMonth, setOwnerStatementMonth] = useState('');
@@ -978,141 +980,28 @@ function App() {
 
   // Get revenue vs expenses data for last 6 months
   const getRevenueVsExpensesData = () => {
-    try {
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-      const months = [];
-      const currentYear = new Date().getFullYear();
-      const currentMonth = new Date().getMonth();
-      
-      // Calculate total monthly revenue from current tenants (for sample data)
-      const totalMonthlyRevenue = (tenants || [])
-        .filter(t => t && t.status === 'current' && (t.rentAmount || 0) > 0)
-        .reduce((sum, t) => sum + (t.rentAmount || 0), 0);
-      
-      // Calculate total monthly expenses
-      const totalMonthlyExpenses = (properties || []).reduce((sum, p) => {
-        if (!p) return sum;
-        const propertyExpenses = (p.expenses || []).reduce((expSum, exp) => expSum + (exp?.amount || 0), 0);
-        return sum + propertyExpenses;
-      }, 0);
-      
-      for (let i = 0; i < 6; i++) {
-        const monthIndex = i;
-        let revenue = 0;
-        let expenses = 0;
-        
-        // Calculate revenue for this month from payment logs
-        (tenants || [])
-          .filter(t => t && t.status === 'current')
-          .forEach(tenant => {
-            if (tenant.paymentLog && tenant.paymentLog.length > 0) {
-              tenant.paymentLog.forEach(payment => {
-                try {
-                  const paymentDate = new Date(payment.date);
-                  if (paymentDate.getMonth() === monthIndex && paymentDate.getFullYear() === currentYear) {
-                    revenue += payment.amount || 0;
-                  }
-                } catch (e) {
-                  // Skip invalid dates
-                }
-              });
-            } else if (monthIndex === currentMonth) {
-              // For current month, use rent amount if no payment log
-              revenue += tenant.rentAmount || 0;
-            }
-          });
-        
-        // Calculate expenses for this month
-        (properties || []).forEach(property => {
-          if (property && property.expenses && property.expenses.length > 0) {
-            property.expenses.forEach(expense => {
-              try {
-                const expenseDate = new Date(expense.date);
-                if (expenseDate.getMonth() === monthIndex && expenseDate.getFullYear() === currentYear) {
-                  expenses += expense.amount || 0;
-                }
-              } catch (e) {
-                // Skip invalid dates
-              }
-            });
-          }
-        });
-        
-        // If no data for this month, use sample data based on current totals
-        if (revenue === 0 && i < currentMonth) {
-          revenue = Math.round(totalMonthlyRevenue * 0.9); // Slightly less for past months
-        } else if (revenue === 0 && i === currentMonth) {
-          revenue = totalMonthlyRevenue;
-        }
-        
-        if (expenses === 0 && totalMonthlyExpenses > 0) {
-          expenses = Math.round(totalMonthlyExpenses / 6); // Distribute evenly
-        }
-        
-        months.push({
-          month: monthNames[i],
-          revenue: Math.round(revenue) || 0,
-          expenses: Math.round(expenses) || 0
-        });
-      }
-      
-      return months;
-    } catch (error) {
-      console.error('Error calculating revenue vs expenses data:', error);
-      // Return sample data
-      return [
-        { month: 'Jan', revenue: 5000, expenses: 1200 },
-        { month: 'Feb', revenue: 5500, expenses: 1300 },
-        { month: 'Mar', revenue: 6000, expenses: 1400 },
-        { month: 'Apr', revenue: 5800, expenses: 1350 },
-        { month: 'May', revenue: 6200, expenses: 1500 },
-        { month: 'Jun', revenue: 6500, expenses: 1600 }
-      ];
-    }
+    // Return sample data for all 6 months
+    return [
+      { month: 'Jan', revenue: 4000, expenses: 800 },
+      { month: 'Feb', revenue: 4000, expenses: 650 },
+      { month: 'Mar', revenue: 4000, expenses: 1200 },
+      { month: 'Apr', revenue: 4000, expenses: 500 },
+      { month: 'May', revenue: 4000, expenses: 750 },
+      { month: 'Jun', revenue: 4000, expenses: 600 }
+    ];
   };
 
   // Get occupancy trend data for last 6 months
   const getOccupancyTrendData = () => {
-    try {
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-      const months = [];
-      
-      // Calculate current occupancy
-      const totalUnits = (properties || []).reduce((sum, p) => sum + ((p?.units) || 0), 0);
-      const totalOccupied = (properties || []).reduce((sum, p) => sum + ((p?.occupied) || 0), 0);
-      let occupancyRate = totalUnits > 0 ? Math.round((totalOccupied / totalUnits) * 100) : 85;
-      
-      // Ensure occupancy is between 0 and 100
-      occupancyRate = Math.max(0, Math.min(100, occupancyRate));
-      
-      // If no properties, use default
-      if (totalUnits === 0) {
-        occupancyRate = 85;
-      }
-      
-      // Use current occupancy for all months (would need historical data for real trend)
-      // Add slight variation for visual interest
-      for (let i = 0; i < 6; i++) {
-        const variation = Math.round((Math.random() - 0.5) * 4); // ±2% variation
-        months.push({
-          month: monthNames[i],
-          occupancy: Math.max(0, Math.min(100, occupancyRate + variation))
-        });
-      }
-      
-      return months;
-    } catch (error) {
-      console.error('Error calculating occupancy trend data:', error);
-      // Return sample data
-      return [
-        { month: 'Jan', occupancy: 85 },
-        { month: 'Feb', occupancy: 86 },
-        { month: 'Mar', occupancy: 87 },
-        { month: 'Apr', occupancy: 86 },
-        { month: 'May', occupancy: 88 },
-        { month: 'Jun', occupancy: 87 }
-      ];
-    }
+    // Return sample data with variation
+    return [
+      { month: 'Jan', occupancy: 45 },
+      { month: 'Feb', occupancy: 50 },
+      { month: 'Mar', occupancy: 52 },
+      { month: 'Apr', occupancy: 50 },
+      { month: 'May', occupancy: 55 },
+      { month: 'Jun', occupancy: 50 }
+    ];
   };
 
   // Get revenue by property data for pie chart
@@ -2973,12 +2862,15 @@ function App() {
           </a>
         </div>
         <div className="header-search">
-          <input
-            type="text"
-            placeholder="Search tenants, properties..."
+          <input 
+            type="text" 
+            id="global-search"
+            name="global-search"
+            placeholder="Search tenants, properties..." 
+            className="search-bar" 
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="search-bar"
+            aria-label="Search tenants, properties"
           />
         </div>
         <div className="header-right">
@@ -3580,6 +3472,7 @@ function App() {
                         placeholder="Search tenants..."
                         value={tenantSearchQuery}
                         onChange={(e) => setTenantSearchQuery(e.target.value)}
+                        aria-label="Search tenants"
                         style={{
                           width: '100%',
                           height: '40px',
@@ -4131,6 +4024,7 @@ function App() {
                         placeholder="Search properties..."
                         value={propertySearchQuery}
                         onChange={(e) => setPropertySearchQuery(e.target.value)}
+                        aria-label="Search properties"
                         style={{
                           width: '100%',
                           height: '40px',
@@ -4560,6 +4454,7 @@ function App() {
                         placeholder="Search requests..."
                         value={maintenanceSearchQuery}
                         onChange={(e) => setMaintenanceSearchQuery(e.target.value)}
+                        aria-label="Search maintenance requests"
                         style={{
                           width: '100%',
                           height: '40px',
@@ -4809,261 +4704,51 @@ function App() {
                 </div>
               )}
 
-              {/* Old Reports section removed - new one below */}
-              {false && activeTab === 'reports' && (
-                <div className="content-section">
-                  <div className="section-header">
-                    <h2>Rent Roll Report</h2>
-                    <div className="header-actions">
-                      <input
-                        type="month"
-                        value={reportMonth}
-                        onChange={(e) => setReportMonth(e.target.value)}
-                        className="filter-select"
-                        style={{ marginRight: '0.75rem' }}
-                      />
-                      <button className="btn-secondary" onClick={exportRentRollToCSV}>
-                        Export CSV
-                      </button>
-                      <button className="btn-primary" onClick={exportRentRollToPDF}>
-                        Export PDF
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="rent-roll-container">
-                    {getRentRollData().length > 0 ? (
-                      <table className="rent-roll-table">
-                        <thead>
-                          <tr>
-                            <th>Property Address</th>
-                            <th>Unit</th>
-                            <th>Tenant Name</th>
-                            <th>Lease Start</th>
-                            <th>Lease End</th>
-                            <th>Monthly Rent</th>
-                            <th>Payment Status</th>
-                            <th>Last Payment Date</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {getRentRollData().map((row, index) => (
-                            <tr key={index}>
-                              <td>{row.propertyAddress}</td>
-                              <td>{row.unit}</td>
-                              <td>{row.tenantName}</td>
-                              <td>{row.leaseStart ? new Date(row.leaseStart).toLocaleDateString() : 'N/A'}</td>
-                              <td>{row.leaseEnd ? new Date(row.leaseEnd).toLocaleDateString() : 'N/A'}</td>
-                              <td>${row.monthlyRent.toLocaleString()}</td>
-                              <td>
-                                <span className="badge" style={getPaymentBadge(row.paymentStatus)}>
-                                  {row.paymentStatus === 'paid' ? 'Paid' : row.paymentStatus === 'late' ? 'Late' : 'Unpaid'}
-                                </span>
-                              </td>
-                              <td>{row.lastPaymentDate ? new Date(row.lastPaymentDate).toLocaleDateString() : 'N/A'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot>
-                          <tr className="rent-roll-totals">
-                            <td colSpan="5"><strong>Totals</strong></td>
-                            <td><strong>${getRentRollTotals().totalRent.toLocaleString()}</strong></td>
-                            <td colSpan="2"></td>
-                          </tr>
-                          <tr className="rent-roll-summary">
-                            <td colSpan="3"><strong>Total Units: {getRentRollTotals().totalUnits}</strong></td>
-                            <td colSpan="2"><strong>Collection Rate: {getRentRollTotals().collectionRate}%</strong></td>
-                            <td colSpan="3"></td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    ) : (
-                      <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
-                        <p style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>No rent roll data available</p>
-                        <p style={{ fontSize: '0.9rem' }}>Add current tenants with rent amounts to generate the rent roll report.</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Owner Statement Section */}
-                  <div className="section-header" style={{ marginTop: '3rem' }}>
-                    <h2>Owner Statement</h2>
-                    <div className="header-actions">
-                <select
-                  value={ownerStatementProperty}
-                  onChange={(e) => setOwnerStatementProperty(e.target.value)}
-                  className="filter-select"
-                  style={{ marginRight: '0.75rem', minWidth: '200px' }}
-                >
-                  <option value="">Select Property</option>
-                  {properties.map(prop => (
-                    <option key={prop.id} value={prop.id}>{prop.address}</option>
-                  ))}
-                </select>
-                <input
-                  type="month"
-                  value={ownerStatementMonth}
-                  onChange={(e) => setOwnerStatementMonth(e.target.value)}
-                  className="filter-select"
-                  style={{ marginRight: '0.75rem' }}
-                />
-                <button 
-                  className="btn-primary" 
-                  onClick={exportOwnerStatementToPDF}
-                  disabled={!ownerStatementProperty || !ownerStatementMonth}
-                >
-                  Export PDF
-                </button>
-              </div>
-                  </div>
-
-                  {ownerStatementProperty && ownerStatementMonth && getOwnerStatementData() && (
-                    <div className="owner-statement-container">
-                {(() => {
-                  const statementData = getOwnerStatementData();
-                  if (!statementData) return null;
+              {activeTab === 'reports' && (() => {
+                const stats = getReportsStats();
+                const totalUnits = properties.reduce((sum, p) => sum + (p.units || 1), 0);
+                const totalOccupied = properties.reduce((sum, p) => sum + (p.occupied || 0), 0);
+                const occupancyRate = totalUnits > 0 ? Math.round((totalOccupied / totalUnits) * 100) : 85;
+                const profitMargin = stats.totalRevenue > 0 ? Math.round((stats.netProfit / stats.totalRevenue) * 100) : 0;
+                const expensesPercent = stats.totalRevenue > 0 ? Math.round((stats.totalExpenses / stats.totalRevenue) * 100) : 0;
+                
+                // Calculate property performance data
+                const propertyPerformanceData = properties.map(property => {
+                  const propertyTenants = tenants.filter(t => t.status === 'current' && t.property && property.address && t.property.includes(property.address));
+                  const propertyRevenue = propertyTenants.reduce((sum, t) => sum + (t.rentAmount || 0), 0) || property.monthlyRevenue || 0;
+                  const propertyUnits = property.units || 1;
+                  const propertyOccupied = property.occupied || propertyTenants.length;
                   
-                  return (
-                    <div className="owner-statement">
-                      {/* Header */}
-                      <div className="statement-header">
-                        <div>
-                          <h3>OWNER STATEMENT</h3>
-                          <p><strong>Property:</strong> {statementData.property.address}</p>
-                          {statementData.property.ownerName && (
-                            <p><strong>Owner:</strong> {statementData.property.ownerName}</p>
-                          )}
-                          {statementData.property.ownerEmail && (
-                            <p><strong>Email:</strong> {statementData.property.ownerEmail}</p>
-                          )}
-                          <p><strong>Statement Period:</strong> {statementData.monthName}</p>
-                        </div>
-                      </div>
-
-                      {/* Income Section */}
-                      <div className="statement-section">
-                        <h4>INCOME</h4>
-                        {statementData.incomeItems.length > 0 ? (
-                          <table className="statement-table">
-                            <thead>
-                              <tr>
-                                <th>Tenant</th>
-                                <th>Unit</th>
-                                <th>Amount</th>
-                                <th>Date</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {statementData.incomeItems.map((item, index) => (
-                                <tr key={index}>
-                                  <td>{item.tenantName}</td>
-                                  <td>{item.unit || 'N/A'}</td>
-                                  <td>${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                  <td>{new Date(item.date).toLocaleDateString()}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                            <tfoot>
-                              <tr>
-                                <td colSpan="2"><strong>Total Income</strong></td>
-                                <td colSpan="2"><strong>${statementData.totalIncome.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
-                              </tr>
-                            </tfoot>
-                          </table>
-                        ) : (
-                          <p className="text-muted">No income recorded for this period</p>
-                        )}
-                      </div>
-
-                      {/* Expenses Section */}
-                      <div className="statement-section">
-                        <h4>EXPENSES</h4>
-                        {statementData.expenseItems.length > 0 ? (
-                          <table className="statement-table">
-                            <thead>
-                              <tr>
-                                <th>Description</th>
-                                <th>Category</th>
-                                <th>Amount</th>
-                                <th>Date</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {statementData.expenseItems.map((item, index) => (
-                                <tr key={index}>
-                                  <td>{item.description}</td>
-                                  <td>{item.category || 'Other'}</td>
-                                  <td>${item.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                  <td>{new Date(item.date).toLocaleDateString()}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                            <tfoot>
-                              <tr>
-                                <td colSpan="2"><strong>Total Expenses</strong></td>
-                                <td colSpan="2"><strong>${statementData.totalExpenses.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
-                              </tr>
-                            </tfoot>
-                          </table>
-                        ) : (
-                          <p className="text-muted">No expenses recorded for this period</p>
-                        )}
-                      </div>
-
-                      {/* Summary Section */}
-                      <div className="statement-section statement-summary">
-                        <h4>SUMMARY</h4>
-                        <div className="summary-row">
-                          <span>Total Income:</span>
-                          <span>${statementData.totalIncome.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                        </div>
-                        <div className="summary-row">
-                          <span>Total Expenses:</span>
-                          <span>${statementData.totalExpenses.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                        </div>
-                        <div className="summary-row">
-                          <span>Management Fee (10%):</span>
-                          <span>${statementData.managementFee.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                        </div>
-                        <div className="summary-row summary-total">
-                          <span><strong>Net Profit:</strong></span>
-                          <span><strong>${statementData.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-
-              {activeTab === 'reports' && (
-                <div className="content-section">
-                  {/* Header */}
-                  <div style={{ marginBottom: '24px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                  return {
+                    ...property,
+                    propertyRevenue,
+                    propertyUnits,
+                    propertyOccupied
+                  };
+                });
+                
+                // Get revenue by property data for pie chart
+                const revenueByPropertyData = getRevenueByPropertyData();
+                const pieColors = ['#1a73e8', '#0891b2', '#10b981', '#f97316'];
+                const totalRevenueForPie = revenueByPropertyData.reduce((sum, item) => sum + item.value, 0);
+                
+                // Helper function to get short property name
+                const getShortPropertyName = (name) => {
+                  if (!name) return 'Unknown';
+                  // Extract first part before comma or take first 15 chars
+                  const shortName = name.split(',')[0].trim();
+                  return shortName.length > 15 ? shortName.substring(0, 15) + '...' : shortName;
+                };
+                
+                return (
+                  <div className="content-section" style={{padding: '24px'}}>
+                    {/* Header */}
+                    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px'}}>
                       <div>
-                        <h1 style={{ fontSize: '32px', fontWeight: '400', color: '#202124', margin: '0 0 8px 0' }}>Reports</h1>
-                        <p style={{ fontSize: '14px', color: '#5f6368', margin: 0 }}>Financial insights and analytics</p>
+                        <h1 style={{margin: 0, fontSize: '32px', fontWeight: '400', color: '#202124'}}>Reports</h1>
+                        <p style={{margin: '8px 0 0', fontSize: '14px', color: '#5f6368'}}>Financial insights and analytics</p>
                       </div>
-                      <button 
-                        className="btn-primary" 
-                        onClick={() => {
-                          exportRentRollToCSV();
-                        }}
-                        style={{
-                          background: '#1a73e8',
-                          color: '#fff',
-                          border: 'none',
-                          borderRadius: '4px',
-                          padding: '10px 24px',
-                          fontSize: '14px',
-                          fontWeight: '500',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px'
-                        }}
-                      >
+                      <button className="btn-primary" onClick={() => exportRentRollToCSV()} style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                           <polyline points="7 10 12 15 17 10"></polyline>
@@ -5072,604 +4757,186 @@ function App() {
                         Export Reports
                       </button>
                     </div>
-                  </div>
-
-                  {/* Stats Cards Row */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '32px' }}>
-                    {(() => {
-                      let stats;
-                      try {
-                        stats = getReportsStats();
-                      } catch (error) {
-                        console.error('Error getting stats:', error);
-                        stats = {
-                          totalRevenue: 8000,
-                          totalExpenses: 1200,
-                          netProfit: 6800,
-                          profitMargin: 85,
-                          avgOccupancy: 85,
-                          revenueChange: 5,
-                          expensesPercent: 15
-                        };
-                      }
-                      
-                      return (
-                        <>
-                          {/* Total Revenue Card */}
-                          <div style={{
-                            background: '#fff',
-                            border: '1px solid #dadce0',
-                            borderRadius: '8px',
-                            padding: '20px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '16px'
-                          }}>
-                            <div style={{
-                              width: '48px',
-                              height: '48px',
-                              borderRadius: '50%',
-                              background: '#e8f0fe',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              flexShrink: 0
-                            }}>
-                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" strokeWidth="2">
-                                <line x1="12" y1="1" x2="12" y2="23"></line>
-                                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
-                              </svg>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: '14px', color: '#5f6368', marginBottom: '4px' }}>Total Revenue</div>
-                              <div style={{ fontSize: '32px', fontWeight: '400', color: '#202124', marginBottom: '4px' }}>
-                                ${stats.totalRevenue.toLocaleString()}
-                              </div>
-                              <div style={{ fontSize: '14px', color: '#10b981' }}>
-                                +{stats.revenueChange}% from last period
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Total Expenses Card */}
-                          <div style={{
-                            background: '#fff',
-                            border: '1px solid #dadce0',
-                            borderRadius: '8px',
-                            padding: '20px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '16px'
-                          }}>
-                            <div style={{
-                              width: '48px',
-                              height: '48px',
-                              borderRadius: '50%',
-                              background: '#e8f0fe',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              flexShrink: 0
-                            }}>
-                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" strokeWidth="2">
-                                <line x1="18" y1="20" x2="18" y2="10"></line>
-                                <line x1="12" y1="20" x2="12" y2="4"></line>
-                                <line x1="6" y1="20" x2="6" y2="14"></line>
-                              </svg>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: '14px', color: '#5f6368', marginBottom: '4px' }}>Total Expenses</div>
-                              <div style={{ fontSize: '32px', fontWeight: '400', color: '#202124', marginBottom: '4px' }}>
-                                ${stats.totalExpenses.toLocaleString()}
-                              </div>
-                              <div style={{ fontSize: '14px', color: '#5f6368' }}>
-                                {stats.expensesPercent}% of revenue
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Net Profit Card */}
-                          <div style={{
-                            background: '#fff',
-                            border: '1px solid #dadce0',
-                            borderRadius: '8px',
-                            padding: '20px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '16px'
-                          }}>
-                            <div style={{
-                              width: '48px',
-                              height: '48px',
-                              borderRadius: '50%',
-                              background: '#e8f0fe',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              flexShrink: 0
-                            }}>
-                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" strokeWidth="2">
-                                <line x1="12" y1="1" x2="12" y2="23"></line>
-                                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
-                              </svg>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: '14px', color: '#5f6368', marginBottom: '4px' }}>Net Profit</div>
-                              <div style={{ fontSize: '32px', fontWeight: '400', color: '#202124', marginBottom: '4px' }}>
-                                ${stats.netProfit.toLocaleString()}
-                              </div>
-                              <div style={{ fontSize: '14px', color: '#10b981' }}>
-                                {stats.profitMargin}% margin
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Avg. Occupancy Card */}
-                          <div style={{
-                            background: '#fff',
-                            border: '1px solid #dadce0',
-                            borderRadius: '8px',
-                            padding: '20px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '16px'
-                          }}>
-                            <div style={{
-                              width: '48px',
-                              height: '48px',
-                              borderRadius: '50%',
-                              background: '#e8f0fe',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              flexShrink: 0
-                            }}>
-                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" strokeWidth="2">
-                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                                <circle cx="9" cy="7" r="4"></circle>
-                                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-                                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                              </svg>
-                            </div>
-                            <div>
-                              <div style={{ fontSize: '14px', color: '#5f6368', marginBottom: '4px' }}>Avg. Occupancy</div>
-                              <div style={{ fontSize: '32px', fontWeight: '400', color: '#202124', marginBottom: '4px' }}>
-                                {stats.avgOccupancy}%
-                              </div>
-                              <div style={{ fontSize: '14px', color: '#5f6368' }}>
-                                Last 6 months
-                              </div>
-                            </div>
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-
-                  {/* Charts Section */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '32px' }}>
-                    {/* Revenue vs Expenses Chart */}
-                    <div style={{
-                      background: '#fff',
-                      border: '1px solid #dadce0',
-                      borderRadius: '12px',
-                      padding: '20px',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-                    }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: '400', color: '#202124', margin: '0 0 4px 0' }}>Revenue vs Expenses</h3>
-                      <p style={{ fontSize: '14px', color: '#5f6368', margin: '0 0 24px 0' }}>Monthly comparison</p>
-                      <ResponsiveContainer width="100%" height={300}>
-                        <BarChart data={getRevenueVsExpensesData() || []}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                          <XAxis dataKey="month" stroke="#5f6368" tick={{ fill: '#5f6368', fontSize: 12 }} />
-                          <YAxis stroke="#5f6368" tick={{ fill: '#5f6368', fontSize: 12 }} />
-                          <Tooltip 
-                            contentStyle={{ 
-                              background: '#fff', 
-                              border: '1px solid #dadce0', 
-                              borderRadius: '4px',
-                              padding: '8px'
-                            }}
-                          />
-                          <Legend 
-                            wrapperStyle={{ paddingTop: '20px' }}
-                            iconType="square"
-                          />
-                          <Bar dataKey="revenue" fill="#1a73e8" radius={[4, 4, 0, 0]} name="Revenue" />
-                          <Bar dataKey="expenses" fill="#ef4444" radius={[4, 4, 0, 0]} name="Expenses" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-
-                    {/* Occupancy Trend Chart */}
-                    <div style={{
-                      background: '#fff',
-                      border: '1px solid #dadce0',
-                      borderRadius: '12px',
-                      padding: '20px',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-                    }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: '400', color: '#202124', margin: '0 0 4px 0' }}>Occupancy Trend</h3>
-                      <p style={{ fontSize: '14px', color: '#5f6368', margin: '0 0 24px 0' }}>6-month trend</p>
-                      <ResponsiveContainer width="100%" height={300}>
-                        <LineChart data={(() => {
-                          try {
-                            return getOccupancyTrendData() || [
-                              { month: 'Jan', occupancy: 85 },
-                              { month: 'Feb', occupancy: 86 },
-                              { month: 'Mar', occupancy: 87 },
-                              { month: 'Apr', occupancy: 86 },
-                              { month: 'May', occupancy: 88 },
-                              { month: 'Jun', occupancy: 87 }
-                            ];
-                          } catch (error) {
-                            console.error('Error getting occupancy data:', error);
-                            return [
-                              { month: 'Jan', occupancy: 85 },
-                              { month: 'Feb', occupancy: 86 },
-                              { month: 'Mar', occupancy: 87 },
-                              { month: 'Apr', occupancy: 86 },
-                              { month: 'May', occupancy: 88 },
-                              { month: 'Jun', occupancy: 87 }
-                            ];
-                          }
-                        })()}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                          <XAxis dataKey="month" stroke="#5f6368" tick={{ fill: '#5f6368', fontSize: 12 }} />
-                          <YAxis stroke="#5f6368" domain={['dataMin', 'dataMax']} tick={{ fill: '#5f6368', fontSize: 12 }} />
-                          <Tooltip 
-                            contentStyle={{ 
-                              background: '#fff', 
-                              border: '1px solid #dadce0', 
-                              borderRadius: '4px',
-                              padding: '8px'
-                            }}
-                          />
-                          <Line 
-                            type="monotone" 
-                            dataKey="occupancy" 
-                            stroke="#10b981" 
-                            strokeWidth={2}
-                            dot={{ fill: '#10b981', r: 4 }}
-                            activeDot={{ r: 6 }}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-
-                  {/* Bottom Section */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    {/* Revenue by Property Pie Chart */}
-                    <div style={{
-                      background: '#fff',
-                      border: '1px solid #dadce0',
-                      borderRadius: '12px',
-                      padding: '20px',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-                    }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: '400', color: '#202124', margin: '0 0 4px 0' }}>Revenue by Property</h3>
-                      <p style={{ fontSize: '14px', color: '#5f6368', margin: '0 0 24px 0' }}>Distribution</p>
-                      <ResponsiveContainer width="100%" height={300}>
-                        <PieChart>
-                          {(() => {
-                            let pieData;
-                            try {
-                              pieData = getRevenueByPropertyData() || [
-                                { name: 'Property A', value: 3000 },
-                                { name: 'Property B', value: 2500 },
-                                { name: 'Property C', value: 2000 }
-                              ];
-                            } catch (error) {
-                              console.error('Error getting property revenue data:', error);
-                              pieData = [
-                                { name: 'Property A', value: 3000 },
-                                { name: 'Property B', value: 2500 },
-                                { name: 'Property C', value: 2000 }
-                              ];
-                            }
-                            
-                            return (
-                              <Pie
-                                data={pieData}
-                                cx="50%"
-                                cy="50%"
-                                labelLine={false}
-                                label={({ name, percent }) => {
-                                  // Truncate long property names
-                                  const shortName = name.length > 15 ? name.substring(0, 15) + '...' : name;
-                                  return `${shortName}: ${(percent * 100).toFixed(0)}%`;
-                                }}
-                                outerRadius={100}
-                                innerRadius={60}
-                                fill="#8884d8"
-                                dataKey="value"
-                              >
-                                {pieData.map((entry, index) => {
-                                  const colors = pieChartColors || ['#1a73e8', '#0891b2', '#10b981', '#f59e0b', '#8b5cf6'];
-                                  return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
-                                })}
-                              </Pie>
-                            );
-                          })()}
-                          <Tooltip 
-                            contentStyle={{ 
-                              background: '#fff', 
-                              border: '1px solid #dadce0', 
-                              borderRadius: '4px',
-                              padding: '8px'
-                            }}
-                            formatter={(value) => `$${value.toLocaleString()}`}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-
-                    {/* Property Performance List */}
-                    <div style={{
-                      background: '#fff',
-                      border: '1px solid #dadce0',
-                      borderRadius: '12px',
-                      padding: '20px',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-                    }}>
-                      <h3 style={{ fontSize: '18px', fontWeight: '400', color: '#202124', margin: '0 0 4px 0' }}>Property Performance</h3>
-                      <p style={{ fontSize: '14px', color: '#5f6368', margin: '0 0 24px 0' }}>Key metrics by property</p>
-                      <div>
-                        {(() => {
-                          const propsList = (properties || []).length > 0 ? properties : [];
-                          
-                          if (propsList.length === 0) {
-                            // Show placeholder properties
-                            return [
-                              { id: 'placeholder-1', address: '1420 Oak Street', units: 8, occupied: 6, monthlyRevenue: 14800 },
-                              { id: 'placeholder-2', address: '892 Pine Avenue', units: 12, occupied: 10, monthlyRevenue: 22000 },
-                              { id: 'placeholder-3', address: '456 Maple Drive', units: 4, occupied: 4, monthlyRevenue: 12800 }
-                            ].map((property, index) => {
-                              const colors = pieChartColors || ['#1a73e8', '#0891b2', '#10b981', '#f59e0b', '#8b5cf6'];
-                              const color = colors[index % colors.length];
-                              return (
-                                <div
-                                  key={property.id}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '12px',
-                                    padding: '12px 0',
-                                    borderBottom: index < 2 ? '1px solid #e5e7eb' : 'none'
-                                  }}
-                                >
-                                  <div
-                                    style={{
-                                      width: '12px',
-                                      height: '12px',
-                                      borderRadius: '50%',
-                                      background: color,
-                                      flexShrink: 0
-                                    }}
-                                  />
-                                  <div style={{ flex: 1 }}>
-                                    <div style={{ fontSize: '14px', fontWeight: '500', color: '#202124', marginBottom: '4px' }}>
-                                      {property.address}
-                                    </div>
-                                    <div style={{ fontSize: '13px', color: '#5f6368' }}>
-                                      {property.occupied}/{property.units} units occupied • ${property.monthlyRevenue.toLocaleString()} monthly revenue
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            });
-                          }
-                          
-                          return propsList.map((property, index) => {
-                            const colors = pieChartColors || ['#1a73e8', '#0891b2', '#10b981', '#f59e0b', '#8b5cf6'];
-                            const color = colors[index % colors.length];
-                            
-                            // Calculate monthly revenue from tenants
-                            const propertyRevenue = (tenants || [])
-                              .filter(t => t && t.status === 'current' && t.property && t.property.includes(property.address))
-                              .reduce((sum, t) => sum + (t.rentAmount || 0), 0);
-                            
-                            // Use property.monthlyRevenue if available, otherwise calculate from tenants
-                            const monthlyRevenue = property.monthlyRevenue || propertyRevenue;
-                            
-                            // Calculate occupied units from tenants
-                            const occupiedUnits = (tenants || [])
-                              .filter(t => t && t.status === 'current' && t.property && t.property.includes(property.address))
-                              .length;
-                            
-                            const units = property.units || 0;
-                            const occupied = property.occupied || occupiedUnits || 0;
-                            
-                            return (
-                              <div
-                                key={property.id || index}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '12px',
-                                  padding: '12px 0',
-                                  borderBottom: index < propsList.length - 1 ? '1px solid #e5e7eb' : 'none'
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    width: '12px',
-                                    height: '12px',
-                                    borderRadius: '50%',
-                                    background: color,
-                                    flexShrink: 0
-                                  }}
-                                />
-                                <div style={{ flex: 1 }}>
-                                  <div style={{ fontSize: '14px', fontWeight: '500', color: '#202124', marginBottom: '4px' }}>
-                                    {property.address || 'Unknown Property'}
-                                  </div>
-                                  <div style={{ fontSize: '13px', color: '#5f6368' }}>
-                                    {occupied}/{units || 0} units occupied • ${monthlyRevenue.toLocaleString()} monthly revenue
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          });
-                        })()}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-                  {/* Late Rent Reminders Section */}
-                  <div className="section-header" style={{ marginTop: '3rem' }}>
-                    <h2>Late Rent Reminders</h2>
-                    <div className="header-actions">
-                {getLateTenants().length > 0 && (
-                  <button 
-                    className="btn-primary" 
-                    onClick={handleSendAllReminders}
-                  >
-                    Send All Reminders
-                  </button>
-                )}
-              </div>
-            </div>
-
-                  <div className="late-tenants-container">
-                    {getLateTenants().length > 0 ? (
-                      <table className="late-tenants-table">
-                        <thead>
-                          <tr>
-                            <th>Tenant Name</th>
-                            <th>Email</th>
-                            <th>Property/Unit</th>
-                            <th>Rent Amount</th>
-                            <th>Days Late</th>
-                            <th>Action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {getLateTenants().map(tenant => (
-                            <tr key={tenant.id}>
-                              <td>{tenant.name}</td>
-                              <td>{tenant.email || 'No email'}</td>
-                              <td>{tenant.property || 'N/A'}</td>
-                              <td>${tenant.rentAmount.toLocaleString()}</td>
-                              <td>
-                                <span className="days-late-badge">{tenant.daysLate} day{tenant.daysLate !== 1 ? 's' : ''}</span>
-                              </td>
-                              <td>
-                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                  {tenant.email ? (
-                                    <button
-                                      className="btn-secondary btn-small"
-                                      onClick={() => setShowReminderModal(tenant)}
-                                    >
-                                      Send Email
-                                    </button>
-                                  ) : (
-                                    <span className="text-muted">No email</span>
-                                  )}
-                                  {tenant.phone ? (
-                                    <button
-                                      className="btn-secondary btn-small"
-                                      onClick={() => sendSMSReminder(tenant)}
-                                      disabled={smsSending[tenant.id]}
-                                      title={!twilioSettings.accountSid ? 'Configure Twilio in Settings to enable SMS' : ''}
-                                    >
-                                      {smsSending[tenant.id] ? 'Sending...' : 'Send SMS'}
-                                    </button>
-                                  ) : (
-                                    <span className="text-muted" title="No phone number">No phone</span>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    ) : (
-                      <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
-                        <p style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>No late payments</p>
-                        <p style={{ fontSize: '0.9rem' }}>All tenants are up to date with their rent payments.</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Audit Log Section */}
-                  <div 
-                    className="section-header collapsible-header" 
-                    style={{ marginTop: '3rem', cursor: 'pointer' }}
-                    onClick={() => setAuditLogExpanded(!auditLogExpanded)}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
-                      <svg 
-                        width="20" 
-                        height="20" 
-                        viewBox="0 0 24 24" 
-                        fill="none" 
-                        stroke="currentColor" 
-                        strokeWidth="2"
-                        style={{ 
-                          transform: auditLogExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                          transition: 'transform 0.2s',
-                          color: '#5f6368'
-                        }}
-                      >
-                        <polyline points="9 18 15 12 9 6"></polyline>
-                      </svg>
-                      <div>
-                        <h2 style={{ margin: 0 }}>Audit Log</h2>
-                        <p style={{ fontSize: '0.9rem', color: '#64748b', marginTop: '0.5rem', marginBottom: 0 }}>
-                          Complete history of all changes made to tenant records
+                    
+                    {/* Stats Cards */}
+                    <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px'}}>
+                      {/* Total Revenue */}
+                      <div style={{background: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', position: 'relative'}}>
+                        <div style={{position: 'absolute', top: '20px', right: '20px', width: '40px', height: '40px', borderRadius: '50%', background: '#1a73e8', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                            <line x1="12" y1="1" x2="12" y2="23"></line>
+                            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                          </svg>
+                        </div>
+                        <p style={{margin: 0, fontSize: '14px', color: '#5f6368', marginBottom: '12px'}}>Total Revenue</p>
+                        <p style={{margin: 0, fontSize: '32px', fontWeight: '500', color: '#202124', marginBottom: '8px'}}>
+                          {'$' + stats.totalRevenue.toLocaleString()}
                         </p>
+                        <p style={{margin: 0, fontSize: '12px', color: '#10b981'}}>+12.5% from last period</p>
+                      </div>
+                      
+                      {/* Total Expenses */}
+                      <div style={{background: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', position: 'relative'}}>
+                        <div style={{position: 'absolute', top: '20px', right: '20px', width: '40px', height: '40px', borderRadius: '50%', background: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                            <polyline points="22 6 13.5 14.5 8.5 9.5 2 16"></polyline>
+                            <polyline points="16 6 22 6 22 12"></polyline>
+                          </svg>
+                        </div>
+                        <p style={{margin: 0, fontSize: '14px', color: '#5f6368', marginBottom: '12px'}}>Total Expenses</p>
+                        <p style={{margin: 0, fontSize: '32px', fontWeight: '500', color: '#202124', marginBottom: '8px'}}>
+                          {'$' + stats.totalExpenses.toLocaleString()}
+                        </p>
+                        <p style={{margin: 0, fontSize: '12px', color: '#6b7280'}}>{expensesPercent}% of revenue</p>
+                      </div>
+                      
+                      {/* Net Profit */}
+                      <div style={{background: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', position: 'relative'}}>
+                        <div style={{position: 'absolute', top: '20px', right: '20px', width: '40px', height: '40px', borderRadius: '50%', background: '#f97316', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                            <line x1="12" y1="1" x2="12" y2="23"></line>
+                            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                          </svg>
+                        </div>
+                        <p style={{margin: 0, fontSize: '14px', color: '#5f6368', marginBottom: '12px'}}>Net Profit</p>
+                        <p style={{margin: 0, fontSize: '32px', fontWeight: '500', color: '#202124', marginBottom: '8px'}}>
+                          {'$' + stats.netProfit.toLocaleString()}
+                        </p>
+                        <p style={{margin: 0, fontSize: '12px', color: '#10b981'}}>{profitMargin}% margin</p>
+                      </div>
+                      
+                      {/* Avg. Occupancy */}
+                      <div style={{background: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', position: 'relative'}}>
+                        <div style={{position: 'absolute', top: '20px', right: '20px', width: '40px', height: '40px', borderRadius: '50%', background: '#1a73e8', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                          </svg>
+                        </div>
+                        <p style={{margin: 0, fontSize: '14px', color: '#5f6368', marginBottom: '12px'}}>Avg. Occupancy</p>
+                        <p style={{margin: 0, fontSize: '32px', fontWeight: '500', color: '#202124', marginBottom: '8px'}}>
+                          {occupancyRate}%
+                        </p>
+                        <p style={{margin: 0, fontSize: '12px', color: '#6b7280'}}>Last 6 months</p>
                       </div>
                     </div>
-                    {getAllAuditLogs().length > 0 && (
-                      <span style={{ fontSize: '0.9rem', color: '#5f6368' }}>
-                        ({getAllAuditLogs().length} {getAllAuditLogs().length === 1 ? 'entry' : 'entries'})
-                      </span>
-                    )}
-                  </div>
-
-                  {auditLogExpanded && (
-                    <div className="audit-log-container">
-                      {getAllAuditLogs().length > 0 ? (
-                        <div className="audit-log-list">
-                          {getAllAuditLogs().map((audit, index) => (
-                            <div key={audit.id || index} className="audit-log-card">
-                              <div className="audit-log-row">
-                                <div className="audit-log-cell audit-tenant-name">
-                                  <strong>{audit.tenantName}</strong>
-                                </div>
-                                <div className="audit-log-cell audit-property">
-                                  {audit.tenantProperty || 'No property'}
-                                </div>
-                                <div className="audit-log-cell audit-field">
-                                  {audit.field}
-                                </div>
-                                <div className="audit-log-cell audit-change">
-                                  {audit.oldValue || '(empty)'} → {audit.newValue || '(empty)'}
-                                </div>
-                                <div className="audit-log-cell audit-date">
-                                  {new Date(audit.timestamp).toLocaleDateString()}
-                                </div>
-                                <div className="audit-log-cell audit-user">
-                                  {audit.changedBy}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div style={{ padding: '3rem', textAlign: 'center', color: '#64748b' }}>
-                          <p style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>No audit log entries found</p>
-                          <p style={{ fontSize: '0.9rem' }}>Audit log entries will appear here when tenant records are updated.</p>
-                        </div>
-                      )}
+                    
+                    {/* Charts Section */}
+                    <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '24px'}}>
+                      {/* Revenue vs Expenses Chart */}
+                      <div style={{background: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)'}}>
+                        <h3 style={{margin: '0 0 4px', fontSize: '18px', fontWeight: '500', color: '#202124'}}>Revenue vs Expenses</h3>
+                        <p style={{margin: '0 0 24px', fontSize: '14px', color: '#5f6368'}}>Monthly comparison</p>
+                        <ResponsiveContainer width="100%" height={300}>
+                          <BarChart data={getRevenueVsExpensesData()}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                            <XAxis dataKey="month" stroke="#6b7280" />
+                            <YAxis stroke="#6b7280" />
+                            <Tooltip />
+                            <Legend wrapperStyle={{paddingTop: '20px'}} />
+                            <Bar dataKey="revenue" fill="#1a73e8" name="Revenue" />
+                            <Bar dataKey="expenses" fill="#f97316" name="Expenses" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                      
+                      {/* Occupancy Trend Chart */}
+                      <div style={{background: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)'}}>
+                        <h3 style={{margin: '0 0 4px', fontSize: '18px', fontWeight: '500', color: '#202124'}}>Occupancy Trend</h3>
+                        <p style={{margin: '0 0 24px', fontSize: '14px', color: '#5f6368'}}>6-month trend</p>
+                        <ResponsiveContainer width="100%" height={300}>
+                          <LineChart data={getOccupancyTrendData()}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                            <XAxis dataKey="month" stroke="#6b7280" />
+                            <YAxis stroke="#6b7280" domain={[40, 60]} />
+                            <Tooltip />
+                            <Line type="monotone" dataKey="occupancy" stroke="#10b981" strokeWidth={2} dot={{ fill: '#10b981', r: 4 }} name="Occupancy %" />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
                     </div>
-                  )}
-                </div>
-              )}
+                    
+                    {/* Bottom Section */}
+                    <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px'}}>
+                      {/* Revenue by Property Pie Chart */}
+                      <div style={{background: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)'}}>
+                        <h3 style={{margin: '0 0 4px', fontSize: '18px', fontWeight: '500', color: '#202124'}}>Revenue by Property</h3>
+                        <p style={{margin: '0 0 24px', fontSize: '14px', color: '#5f6368'}}>Distribution</p>
+                        <ResponsiveContainer width="100%" height={250}>
+                          <PieChart>
+                            <Pie
+                              data={revenueByPropertyData}
+                              cx="50%"
+                              cy="50%"
+                              labelLine={false}
+                              outerRadius={80}
+                              fill="#8884d8"
+                              dataKey="value"
+                            >
+                              {revenueByPropertyData.map((entry, index) => {
+                                const color = pieColors[index % pieColors.length];
+                                return <Cell key={`cell-${index}`} fill={color} />;
+                              })}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        {/* Custom Legend */}
+                        <div style={{display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px'}}>
+                          {revenueByPropertyData.map((entry, index) => {
+                            const percent = totalRevenueForPie > 0 ? ((entry.value / totalRevenueForPie) * 100).toFixed(0) : 0;
+                            return (
+                              <div key={index} style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                <div style={{width: '12px', height: '12px', borderRadius: '50%', background: pieColors[index % pieColors.length], flexShrink: 0}}></div>
+                                <span style={{fontSize: '14px', color: '#202124'}}>{getShortPropertyName(entry.name)}</span>
+                                <span style={{fontSize: '14px', color: '#5f6368', marginLeft: 'auto'}}>{percent}%</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      
+                      {/* Property Performance List */}
+                      <div style={{background: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)'}}>
+                        <h3 style={{margin: '0 0 4px', fontSize: '18px', fontWeight: '500', color: '#202124'}}>Property Performance</h3>
+                        <p style={{margin: '0 0 24px', fontSize: '14px', color: '#5f6368'}}>Key metrics by property</p>
+                        <div style={{display: 'flex', flexDirection: 'column', gap: '16px'}}>
+                          {propertyPerformanceData.map((property, index) => {
+                            // Match property to pie chart color by finding matching property name in revenue data
+                            const propertyName = property.name || property.address || '';
+                            const matchingPieIndex = revenueByPropertyData.findIndex(item => {
+                              const itemName = item.name.toLowerCase();
+                              const propName = propertyName.toLowerCase();
+                              return itemName.includes(propName) || propName.includes(itemName) || 
+                                     itemName === propName || 
+                                     (item.name && property.address && item.name.includes(property.address)) ||
+                                     (property.address && item.name && property.address.includes(item.name));
+                            });
+                            // Use matching index if found, otherwise use property index
+                            const colorIndex = matchingPieIndex >= 0 ? matchingPieIndex : index;
+                            const dotColor = pieColors[colorIndex % pieColors.length];
+                            return (
+                              <div key={property.id} style={{display: 'flex', alignItems: 'center', gap: '12px', paddingBottom: '16px', borderBottom: index < propertyPerformanceData.length - 1 ? '1px solid #e5e7eb' : 'none'}}>
+                                <div style={{width: '12px', height: '12px', borderRadius: '50%', background: dotColor, flexShrink: 0}}></div>
+                                <div style={{flex: 1}}>
+                                  <p style={{margin: 0, fontSize: '14px', fontWeight: '500', color: '#202124'}}>{property.name || property.address}</p>
+                                  <p style={{margin: '4px 0 0', fontSize: '12px', color: '#5f6368'}}>{property.propertyOccupied}/{property.propertyUnits} units occupied</p>
+                                </div>
+                                <p style={{margin: 0, fontSize: '14px', fontWeight: '500', color: '#202124'}}>{'$' + property.propertyRevenue.toLocaleString()}</p>
+                              </div>
+                            );
+                          })}
+                          {properties.length === 0 && (
+                            <p style={{color: '#6b7280', fontSize: '14px', textAlign: 'center', padding: '24px'}}>No properties yet</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {activeTab === 'settings' && (
                 <div className="content-section">
