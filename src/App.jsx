@@ -169,6 +169,8 @@ function App() {
   const [tenants, setTenants] = useState([]);
   const [properties, setProperties] = useState([]);
   const [maintenanceRequests, setMaintenanceRequests] = useState([]);
+  const [tags, setTags] = useState([]);
+  const [recordTags, setRecordTags] = useState([]); // Tag assignments
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState(null);
@@ -260,6 +262,17 @@ function App() {
   const [testSmsPhone, setTestSmsPhone] = useState('');
   const [testSmsSending, setTestSmsSending] = useState(false);
   const [smsSending, setSmsSending] = useState({});
+  
+  // Tag management state
+  const [showCreateTagModal, setShowCreateTagModal] = useState(false);
+  const [newTag, setNewTag] = useState({ name: '', color: 'blue' });
+  const [tagPickerOpen, setTagPickerOpen] = useState({ recordType: null, recordId: null });
+  const [tagPickerSearch, setTagPickerSearch] = useState('');
+  const [selectedTagFilters, setSelectedTagFilters] = useState([]);
+  const [quickTagMenu, setQuickTagMenu] = useState({ recordType: null, recordId: null, x: 0, y: 0 });
+  const [tagAnalysisDateRange, setTagAnalysisDateRange] = useState('all');
+  const [selectedTagForTrend, setSelectedTagForTrend] = useState(null);
+  const [expandedTagRow, setExpandedTagRow] = useState(null);
   
   // CSV Import state
   const [tenantCsvFile, setTenantCsvFile] = useState(null);
@@ -571,12 +584,435 @@ function App() {
 
       if (maintenanceError) throw maintenanceError;
       setMaintenanceRequests((maintenanceData || []).map(transformMaintenanceRequest));
+
+      // Load tags
+      await loadTags(userToUse);
     } catch (error) {
       console.error('Error loading data:', error);
       alert('Error loading data. Please check your Supabase connection.');
     } finally {
       setLoading(false);
     }
+  };
+
+  // Load tags from Supabase
+  const loadTags = async (currentUser = null) => {
+    const userToUse = currentUser || user;
+    if (!userToUse) return;
+
+    try {
+      const { data: tagsData, error: tagsError } = await supabase
+        .from('tags')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (tagsError) {
+        // If table doesn't exist, don't error - just return empty array
+        if (tagsError.code === '42P01') {
+          console.log('Tags table does not exist yet. Run the migration SQL first.');
+          setTags([]);
+          setRecordTags([]);
+          return;
+        }
+        throw tagsError;
+      }
+      
+      // If no tags exist, seed default tags
+      if (!tagsData || tagsData.length === 0) {
+        await seedDefaultTags(userToUse);
+        // Reload tags after seeding
+        const { data: reloadedTags, error: reloadError } = await supabase
+          .from('tags')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (!reloadError && reloadedTags) {
+          setTags(reloadedTags);
+        }
+      } else {
+        setTags(tagsData || []);
+      }
+
+      // Load record tags (tag assignments)
+      const { data: recordTagsData, error: recordTagsError } = await supabase
+        .from('record_tags')
+        .select('*');
+
+      if (recordTagsError) {
+        // If table doesn't exist, don't error - just return empty array
+        if (recordTagsError.code === '42P01') {
+          setRecordTags([]);
+          return;
+        }
+        throw recordTagsError;
+      }
+      setRecordTags(recordTagsData || []);
+
+      // Load tag history
+      try {
+        const { data: tagHistoryData, error: tagHistoryError } = await supabase
+          .from('tag_history')
+          .select('*')
+          .order('action_at', { ascending: false });
+
+        if (tagHistoryError) {
+          // If table doesn't exist, don't error - just return empty array
+          if (tagHistoryError.code === '42P01') {
+            setTagHistory([]);
+          } else {
+            throw tagHistoryError;
+          }
+        } else {
+          setTagHistory(tagHistoryData || []);
+        }
+      } catch (error) {
+        console.error('Error loading tag history:', error);
+        setTagHistory([]);
+      }
+    } catch (error) {
+      console.error('Error loading tags:', error);
+      // Don't show alert for tags - it's not critical
+      setTags([]);
+      setRecordTags([]);
+      setTagHistory([]);
+    }
+  };
+
+  // Get tag history for a specific record
+  const getTagHistoryForRecord = (recordType, recordId) => {
+    return tagHistory
+      .filter(th => th.record_type === recordType && th.record_id === recordId)
+      .sort((a, b) => new Date(b.action_at) - new Date(a.action_at));
+  };
+
+  // Get tag analysis data for Reports page
+  const getTagAnalysisData = (dateRange = 'all') => {
+    const now = new Date();
+    let startDate = null;
+    
+    if (dateRange === '30') {
+      startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    } else if (dateRange === '90') {
+      startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    } else if (dateRange === '12months') {
+      startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+    }
+    
+    // Filter record tags by date range if specified
+    let filteredRecordTags = recordTags;
+    if (startDate) {
+      filteredRecordTags = recordTags.filter(rt => {
+        const addedDate = new Date(rt.added_at);
+        return addedDate >= startDate;
+      });
+    }
+    
+    // Group by tag
+    const tagStats = {};
+    
+    tags.forEach(tag => {
+      const tagRecords = filteredRecordTags.filter(rt => rt.tag_id === tag.id);
+      const tenantCount = tagRecords.filter(rt => rt.record_type === 'tenant').length;
+      const propertyCount = tagRecords.filter(rt => rt.record_type === 'property').length;
+      const maintenanceCount = tagRecords.filter(rt => rt.record_type === 'maintenance').length;
+      
+      // Calculate total rent affected (for tenant tags)
+      let totalRent = 0;
+      if (tenantCount > 0) {
+        tagRecords
+          .filter(rt => rt.record_type === 'tenant')
+          .forEach(rt => {
+            const tenant = tenants.find(t => t.id === rt.record_id);
+            if (tenant && tenant.rentAmount) {
+              totalRent += tenant.rentAmount;
+            }
+          });
+      }
+      
+      // For maintenance tags, calculate total cost
+      let totalCost = 0;
+      if (maintenanceCount > 0) {
+        // This would require maintenance cost data - placeholder for now
+        totalCost = 0;
+      }
+      
+      if (tagRecords.length > 0) {
+        tagStats[tag.id] = {
+          tag,
+          totalRecords: tagRecords.length,
+          tenants: tenantCount,
+          properties: propertyCount,
+          maintenance: maintenanceCount,
+          totalRent: totalRent,
+          totalCost: totalCost
+        };
+      }
+    });
+    
+    // Convert to array and sort by total records
+    return Object.values(tagStats).sort((a, b) => b.totalRecords - a.totalRecords);
+  };
+
+  // Get tag trend data for a specific tag
+  const getTagTrendData = (tagId, dateRange = '12months') => {
+    const now = new Date();
+    let startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+    
+    if (dateRange === '30') {
+      startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    } else if (dateRange === '90') {
+      startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    }
+    
+    // Get tag history for this tag within date range
+    const tagHistoryFiltered = tagHistory
+      .filter(th => th.tag_id === tagId && th.action === 'added' && new Date(th.action_at) >= startDate)
+      .sort((a, b) => new Date(a.action_at) - new Date(b.action_at));
+    
+    // Group by month
+    const monthlyData = {};
+    tagHistoryFiltered.forEach(th => {
+      const date = new Date(th.action_at);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      if (!monthlyData[monthKey]) {
+        monthlyData[monthKey] = 0;
+      }
+      monthlyData[monthKey]++;
+    });
+    
+    // Convert to array format for chart
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return Object.keys(monthlyData)
+      .sort()
+      .map(monthKey => {
+        const [year, month] = monthKey.split('-');
+        return {
+          month: monthNames[parseInt(month) - 1],
+          count: monthlyData[monthKey]
+        };
+      });
+  };
+
+  // Seed default tags
+  const seedDefaultTags = async (currentUser = null) => {
+    const userToUse = currentUser || user;
+    if (!userToUse) return;
+
+    const defaultTags = [
+      { name: 'late_payment', color: 'red' },
+      { name: 'payment_plan', color: 'yellow' },
+      { name: 'roof_repair', color: 'orange' },
+      { name: 'hvac_issue', color: 'orange' },
+      { name: 'plumbing', color: 'blue' },
+      { name: 'pest_control', color: 'purple' },
+      { name: 'lease_violation', color: 'red' },
+      { name: 'noise_complaint', color: 'yellow' },
+      { name: 'section_8', color: 'teal' },
+      { name: 'month_to_month', color: 'gray' },
+      { name: 'high_priority', color: 'red' },
+      { name: 'resolved', color: 'green' }
+    ];
+
+    try {
+      const tagsToInsert = defaultTags.map(tag => ({
+        user_id: userToUse.id,
+        name: tag.name,
+        color: tag.color
+      }));
+
+      const { error } = await supabase
+        .from('tags')
+        .insert(tagsToInsert);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error seeding default tags:', error);
+    }
+  };
+
+  // Create a new tag
+  const createTag = async (name, color) => {
+    if (!user || !name || !name.trim()) {
+      alert('Please enter a tag name');
+      return;
+    }
+
+    // Normalize name: lowercase, replace spaces with underscores
+    const normalizedName = name.trim().toLowerCase().replace(/\s+/g, '_');
+
+    try {
+      const { data, error } = await supabase
+        .from('tags')
+        .insert([{
+          user_id: user.id,
+          name: normalizedName,
+          color: color || 'blue'
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      setTags([...tags, data]);
+      return data;
+    } catch (error) {
+      console.error('Error creating tag:', error);
+      if (error.code === '23505') { // Unique constraint violation
+        alert('A tag with this name already exists');
+      } else {
+        alert('Error creating tag: ' + error.message);
+      }
+      throw error;
+    }
+  };
+
+  // Delete a tag
+  const deleteTag = async (tagId) => {
+    if (!user || !tagId) return;
+
+    try {
+      const { error } = await supabase
+        .from('tags')
+        .delete()
+        .eq('id', tagId)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      setTags(tags.filter(t => t.id !== tagId));
+      
+      // Also delete all record_tags associated with this tag
+      await supabase
+        .from('record_tags')
+        .delete()
+        .eq('tag_id', tagId);
+    } catch (error) {
+      console.error('Error deleting tag:', error);
+      alert('Error deleting tag: ' + error.message);
+      throw error;
+    }
+  };
+
+  // Get record count for a tag
+  const getTagRecordCount = (tagId) => {
+    return recordTags.filter(rt => rt.tag_id === tagId).length;
+  };
+
+  // Get tags for a specific record
+  const getTagsForRecord = (recordType, recordId) => {
+    const recordTagIds = recordTags
+      .filter(rt => rt.record_type === recordType && rt.record_id === recordId)
+      .map(rt => rt.tag_id);
+    return tags.filter(t => recordTagIds.includes(t.id));
+  };
+
+  // Add tag to a record
+  const addTagToRecord = async (tagId, recordType, recordId) => {
+    if (!user) return;
+
+    // Check if tag is already applied
+    const existing = recordTags.find(
+      rt => rt.tag_id === tagId && rt.record_type === recordType && rt.record_id === recordId
+    );
+    if (existing) return; // Tag already applied
+
+    try {
+      const tag = tags.find(t => t.id === tagId);
+      const tagName = tag ? tag.name : '';
+
+      // Insert record tag
+      const { data, error } = await supabase
+        .from('record_tags')
+        .insert([{
+          tag_id: tagId,
+          record_type: recordType,
+          record_id: recordId,
+          added_by: user.id
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      setRecordTags([...recordTags, data]);
+
+      // Log to tag history
+      try {
+        await supabase
+          .from('tag_history')
+          .insert([{
+            tag_id: tagId,
+            tag_name: tagName,
+            record_type: recordType,
+            record_id: recordId,
+            action: 'added',
+            action_by: user.id,
+            user_id: user.id
+          }]);
+      } catch (historyError) {
+        // Don't fail if history logging fails
+        console.error('Error logging tag history:', historyError);
+      }
+    } catch (error) {
+      console.error('Error adding tag to record:', error);
+      alert('Error adding tag: ' + error.message);
+      throw error;
+    }
+  };
+
+  // Remove tag from a record
+  const removeTagFromRecord = async (tagId, recordType, recordId) => {
+    if (!user) return;
+
+    try {
+      const tag = tags.find(t => t.id === tagId);
+      const tagName = tag ? tag.name : '';
+
+      const { error } = await supabase
+        .from('record_tags')
+        .delete()
+        .eq('tag_id', tagId)
+        .eq('record_type', recordType)
+        .eq('record_id', recordId);
+
+      if (error) throw error;
+      setRecordTags(recordTags.filter(
+        rt => !(rt.tag_id === tagId && rt.record_type === recordType && rt.record_id === recordId)
+      ));
+
+      // Log to tag history
+      try {
+        await supabase
+          .from('tag_history')
+          .insert([{
+            tag_id: tagId,
+            tag_name: tagName,
+            record_type: recordType,
+            record_id: recordId,
+            action: 'removed',
+            action_by: user.id,
+            user_id: user.id
+          }]);
+      } catch (historyError) {
+        // Don't fail if history logging fails
+        console.error('Error logging tag history:', historyError);
+      }
+    } catch (error) {
+      console.error('Error removing tag from record:', error);
+      alert('Error removing tag: ' + error.message);
+      throw error;
+    }
+  };
+
+  // Get most recently used tags (for quick-tag)
+  const getMostRecentTags = () => {
+    if (recordTags.length === 0) return tags.slice(0, 5);
+    
+    // Get unique tag IDs from recent record_tags, ordered by most recent
+    const recentTagIds = [...new Set(
+      recordTags
+        .sort((a, b) => new Date(b.added_at) - new Date(a.added_at))
+        .map(rt => rt.tag_id)
+        .slice(0, 5)
+    )];
+    
+    return recentTagIds.map(id => tags.find(t => t.id === id)).filter(Boolean);
   };
 
   // Check for existing session on mount
@@ -902,6 +1338,237 @@ function App() {
   const formatCurrency = (value) => {
     if (value === null || value === undefined || isNaN(value)) return '$0';
     return '$' + Number(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  };
+
+  // TagPicker Component (inline function component)
+  const TagPicker = ({ recordType, recordId, existingTags = [], onTagsChange }) => {
+    const recordTags = getTagsForRecord(recordType, recordId);
+    const isOpen = tagPickerOpen.recordType === recordType && tagPickerOpen.recordId === recordId;
+    const searchValue = isOpen ? tagPickerSearch : '';
+
+    const availableTags = tags.filter(tag => {
+      // Filter out already applied tags
+      if (recordTags.some(rt => rt.id === tag.id)) return false;
+      // Filter by search
+      if (searchValue && !tag.name.toLowerCase().includes(searchValue.toLowerCase())) return false;
+      return true;
+    });
+
+    const handleAddTag = async (tagId) => {
+      try {
+        await addTagToRecord(tagId, recordType, recordId);
+        setTagPickerOpen({ recordType: null, recordId: null });
+        setTagPickerSearch('');
+        if (onTagsChange) onTagsChange();
+      } catch (error) {
+        // Error already handled
+      }
+    };
+
+    const handleRemoveTag = async (tagId) => {
+      try {
+        await removeTagFromRecord(tagId, recordType, recordId);
+        if (onTagsChange) onTagsChange();
+      } catch (error) {
+        // Error already handled
+      }
+    };
+
+    const handleCreateAndAddTag = async () => {
+      if (!searchValue.trim()) return;
+      try {
+        const newTagData = await createTag(searchValue, 'blue');
+        if (newTagData) {
+          await handleAddTag(newTagData.id);
+        }
+      } catch (error) {
+        // Error already handled
+      }
+    };
+
+    const colorMap = {
+      blue: '#1a73e8',
+      green: '#10b981',
+      yellow: '#fbbf24',
+      orange: '#f97316',
+      red: '#ef4444',
+      purple: '#a855f7',
+      teal: '#14b8a6',
+      gray: '#6b7280'
+    };
+
+    return (
+      <div style={{ position: 'relative' }}>
+        {/* Existing Tags */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '8px' }}>
+          {recordTags.map(tag => (
+            <span
+              key={tag.id}
+              className={`tag-pill ${tag.color}`}
+              style={{ cursor: 'default' }}
+            >
+              {tag.name}
+              <span
+                className="tag-remove"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemoveTag(tag.id);
+                }}
+                title="Remove tag"
+              >
+                ×
+              </span>
+            </span>
+          ))}
+        </div>
+
+        {/* Add Tag Button */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setTagPickerOpen({ recordType, recordId });
+            setTagPickerSearch('');
+          }}
+          style={{
+            background: 'none',
+            border: '1px dashed #dadce0',
+            borderRadius: '4px',
+            padding: '4px 8px',
+            fontSize: '11px',
+            color: '#5f6368',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px'
+          }}
+          onMouseEnter={(e) => {
+            e.target.style.borderColor = '#1a73e8';
+            e.target.style.color = '#1a73e8';
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.borderColor = '#dadce0';
+            e.target.style.color = '#5f6368';
+          }}
+        >
+          + Add Tag
+        </button>
+
+        {/* Dropdown */}
+        {isOpen && (
+          <>
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 999
+              }}
+              onClick={() => {
+                setTagPickerOpen({ recordType: null, recordId: null });
+                setTagPickerSearch('');
+              }}
+            />
+            <div
+              style={{
+                position: 'absolute',
+                top: '100%',
+                left: 0,
+                marginTop: '4px',
+                background: '#fff',
+                border: '1px solid #dadce0',
+                borderRadius: '8px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                zIndex: 1000,
+                minWidth: '250px',
+                maxHeight: '300px',
+                overflowY: 'auto'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Search Input */}
+              <div style={{ padding: '12px', borderBottom: '1px solid #e5e7eb' }}>
+                <input
+                  type="text"
+                  value={searchValue}
+                  onChange={(e) => setTagPickerSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && searchValue.trim() && availableTags.length === 0) {
+                      handleCreateAndAddTag();
+                    }
+                  }}
+                  placeholder="Search or create tag..."
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    border: '1px solid #dadce0',
+                    borderRadius: '4px',
+                    fontSize: '14px'
+                  }}
+                />
+              </div>
+
+              {/* Tag List */}
+              <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                {availableTags.length > 0 ? (
+                  availableTags.map(tag => (
+                    <div
+                      key={tag.id}
+                      onClick={() => handleAddTag(tag.id)}
+                      style={{
+                        padding: '10px 12px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        borderBottom: '1px solid #f5f5f5'
+                      }}
+                      onMouseEnter={(e) => e.target.style.background = '#f8f9fa'}
+                      onMouseLeave={(e) => e.target.style.background = '#fff'}
+                    >
+                      <div
+                        style={{
+                          width: '12px',
+                          height: '12px',
+                          borderRadius: '50%',
+                          background: colorMap[tag.color] || colorMap.blue,
+                          flexShrink: 0
+                        }}
+                      />
+                      <span style={{ fontSize: '14px', color: '#202124' }}>{tag.name}</span>
+                    </div>
+                  ))
+                ) : searchValue.trim() ? (
+                  <div
+                    onClick={handleCreateAndAddTag}
+                    style={{
+                      padding: '10px 12px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      color: '#1a73e8',
+                      borderBottom: '1px solid #f5f5f5'
+                    }}
+                    onMouseEnter={(e) => e.target.style.background = '#f8f9fa'}
+                    onMouseLeave={(e) => e.target.style.background = '#fff'}
+                  >
+                    <span style={{ fontSize: '14px' }}>+ Create "{searchValue}"</span>
+                  </div>
+                ) : (
+                  <div style={{ padding: '12px', textAlign: 'center', color: '#5f6368', fontSize: '14px' }}>
+                    No tags available
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    );
   };
 
   // Get recent tenants (last 5)
@@ -1723,7 +2390,14 @@ function App() {
       (t.name && t.name.toLowerCase().includes(tenantSearchQuery.toLowerCase())) ||
       (t.property && t.property.toLowerCase().includes(tenantSearchQuery.toLowerCase()));
     
-    return matchesStatus && matchesSearch;
+    // Tag filter
+    let matchesTags = true;
+    if (selectedTagFilters.length > 0) {
+      const tenantTagIds = getTagsForRecord('tenant', t.id).map(tag => tag.id);
+      matchesTags = selectedTagFilters.every(filterTagId => tenantTagIds.includes(filterTagId));
+    }
+    
+    return matchesStatus && matchesSearch && matchesTags;
   });
 
   const handleTogglePaymentStatus = async (tenantId, e) => {
@@ -3367,6 +4041,68 @@ function App() {
                     </div>
                   </div>
 
+                  {/* Tag Alerts */}
+                  {(() => {
+                    const highPriorityTag = tags.find(t => t.name === 'high_priority');
+                    if (highPriorityTag) {
+                      const highPriorityRecords = recordTags.filter(rt => rt.tag_id === highPriorityTag.id);
+                      const highPriorityCount = highPriorityRecords.length;
+                      
+                      if (highPriorityCount > 0) {
+                        return (
+                          <div
+                            className="alert-banner"
+                            style={{
+                              background: '#fff7ed',
+                              borderColor: '#fed7aa',
+                              color: '#c2410c',
+                              marginBottom: '16px',
+                              cursor: 'pointer'
+                            }}
+                            onClick={() => {
+                              setSelectedTagFilters([highPriorityTag.id]);
+                              setActiveTab('tenants');
+                            }}
+                          >
+                            <div className="alert-content" style={{ flex: 1, minWidth: 0 }}>
+                              <span className="alert-icon">⚠️</span>
+                              <div className="alert-text" style={{ wordWrap: 'break-word', overflowWrap: 'break-word' }}>
+                                <strong>{highPriorityCount} record{highPriorityCount > 1 ? 's' : ''} tagged high_priority need attention</strong>
+                                <span className="alert-tenants" style={{ display: 'block', marginTop: '4px', wordWrap: 'break-word', overflowWrap: 'break-word' }}>
+                                  Click to view all high priority records
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedTagFilters([highPriorityTag.id]);
+                                setActiveTab('tenants');
+                              }}
+                              className="alert-action"
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#1a73e8',
+                                cursor: 'pointer',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                padding: '0',
+                                textDecoration: 'none',
+                                whiteSpace: 'nowrap'
+                              }}
+                              onMouseEnter={(e) => e.target.style.textDecoration = 'underline'}
+                              onMouseLeave={(e) => e.target.style.textDecoration = 'none'}
+                            >
+                              View Records
+                            </button>
+                          </div>
+                        );
+                      }
+                    }
+                    return null;
+                  })()}
+
                   {/* Stats Cards Row */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '32px' }}>
                     {(() => {
@@ -3884,22 +4620,174 @@ function App() {
                         <option value="late">Late Payments</option>
                         {expiringLeases.length > 0 && <option value="expiring">Expiring Leases</option>}
                       </select>
-                      <svg 
-                        width="16" 
-                        height="16" 
-                        viewBox="0 0 24 24" 
-                        fill="none" 
-                        stroke="#5f6368" 
-                        strokeWidth="2"
-                        style={{
-                          position: 'absolute',
-                          right: '12px',
-                          pointerEvents: 'none'
-                        }}
-                      >
-                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
-                      </svg>
                     </div>
+                    {/* Tag Filter */}
+                    {tags.length > 0 && (
+                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            onClick={() => {
+                              const dropdown = document.getElementById('tag-filter-dropdown');
+                              if (dropdown) {
+                                dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+                              }
+                            }}
+                            style={{
+                              height: '40px',
+                              padding: '0 16px',
+                              border: '1px solid #dadce0',
+                              borderRadius: '4px',
+                              background: '#fff',
+                              color: '#202124',
+                              fontSize: '14px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              whiteSpace: 'nowrap'
+                            }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
+                              <line x1="7" y1="7" x2="7.01" y2="7"></line>
+                            </svg>
+                            Filter by Tag
+                            {selectedTagFilters.length > 0 && (
+                              <span style={{
+                                background: '#1a73e8',
+                                color: '#fff',
+                                borderRadius: '10px',
+                                padding: '2px 6px',
+                                fontSize: '11px',
+                                fontWeight: '500'
+                              }}>
+                                {selectedTagFilters.length}
+                              </span>
+                            )}
+                          </button>
+                          <div
+                            id="tag-filter-dropdown"
+                            style={{
+                              display: 'none',
+                              position: 'absolute',
+                              top: '100%',
+                              left: 0,
+                              marginTop: '4px',
+                              background: '#fff',
+                              border: '1px solid #dadce0',
+                              borderRadius: '8px',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                              zIndex: 1000,
+                              minWidth: '200px',
+                              maxHeight: '300px',
+                              overflowY: 'auto',
+                              padding: '8px'
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {tags.map(tag => {
+                              const isSelected = selectedTagFilters.includes(tag.id);
+                              const colorMap = {
+                                blue: '#1a73e8',
+                                green: '#10b981',
+                                yellow: '#fbbf24',
+                                orange: '#f97316',
+                                red: '#ef4444',
+                                purple: '#a855f7',
+                                teal: '#14b8a6',
+                                gray: '#6b7280'
+                              };
+                              return (
+                                <label
+                                  key={tag.id}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    padding: '8px',
+                                    cursor: 'pointer',
+                                    borderRadius: '4px'
+                                  }}
+                                  onMouseEnter={(e) => e.target.style.background = '#f8f9fa'}
+                                  onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedTagFilters([...selectedTagFilters, tag.id]);
+                                      } else {
+                                        setSelectedTagFilters(selectedTagFilters.filter(id => id !== tag.id));
+                                      }
+                                    }}
+                                    style={{ cursor: 'pointer' }}
+                                  />
+                                  <div
+                                    style={{
+                                      width: '12px',
+                                      height: '12px',
+                                      borderRadius: '50%',
+                                      background: colorMap[tag.color] || colorMap.blue,
+                                      flexShrink: 0
+                                    }}
+                                  />
+                                  <span style={{ fontSize: '14px', color: '#202124' }}>{tag.name}</span>
+                                </label>
+                              );
+                            })}
+                            {selectedTagFilters.length > 0 && (
+                              <div style={{ padding: '8px', borderTop: '1px solid #e5e7eb', marginTop: '4px' }}>
+                                <button
+                                  onClick={() => {
+                                    setSelectedTagFilters([]);
+                                    document.getElementById('tag-filter-dropdown').style.display = 'none';
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '6px',
+                                    background: 'none',
+                                    border: '1px solid #dadce0',
+                                    borderRadius: '4px',
+                                    color: '#5f6368',
+                                    cursor: 'pointer',
+                                    fontSize: '12px'
+                                  }}
+                                >
+                                  Clear filters
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {selectedTagFilters.length > 0 && (
+                          <button
+                            onClick={() => setSelectedTagFilters([])}
+                            style={{
+                              marginLeft: '8px',
+                              background: 'none',
+                              border: 'none',
+                              color: '#5f6368',
+                              cursor: 'pointer',
+                              padding: '4px',
+                              display: 'flex',
+                              alignItems: 'center'
+                            }}
+                            title="Clear tag filters"
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <line x1="18" y1="6" x2="6" y2="18"></line>
+                              <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {selectedTagFilters.length > 0 && (
+                      <div style={{ fontSize: '12px', color: '#5f6368', whiteSpace: 'nowrap' }}>
+                        {filteredTenants.length} result{filteredTenants.length !== 1 ? 's' : ''}
+                      </div>
+                    )}
                     <button
                       onClick={exportToCSV}
                       style={{
@@ -4029,15 +4917,33 @@ function App() {
                                   >
                                     {getInitials(tenant.name)}
                                   </div>
-                                  <div>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ fontSize: '14px', fontWeight: '400', color: '#202124', marginBottom: '2px' }}>
                                       {tenant.name}
                                     </div>
                                     {tenant.email && (
-                                      <div style={{ fontSize: '12px', color: '#5f6368' }}>
+                                      <div style={{ fontSize: '12px', color: '#5f6368', marginBottom: '4px' }}>
                                         {tenant.email}
                                       </div>
                                     )}
+                                    {/* Tags */}
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
+                                      {getTagsForRecord('tenant', tenant.id).map(tag => (
+                                        <span
+                                          key={tag.id}
+                                          className={`tag-pill ${tag.color} clickable`}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (!selectedTagFilters.includes(tag.id)) {
+                                              setSelectedTagFilters([...selectedTagFilters, tag.id]);
+                                            }
+                                          }}
+                                          title={`Filter by ${tag.name}`}
+                                        >
+                                          {tag.name}
+                                        </span>
+                                      ))}
+                                    </div>
                                   </div>
                                 </div>
                               </td>
@@ -4410,6 +5316,168 @@ function App() {
                         <path d="m21 21-4.35-4.35"></path>
                       </svg>
                     </div>
+                    {/* Tag Filter for Properties */}
+                    {tags.length > 0 && (
+                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            onClick={() => {
+                              const dropdown = document.getElementById('property-tag-filter-dropdown');
+                              if (dropdown) {
+                                dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+                              }
+                            }}
+                            style={{
+                              height: '40px',
+                              padding: '0 16px',
+                              border: '1px solid #dadce0',
+                              borderRadius: '4px',
+                              background: '#fff',
+                              color: '#202124',
+                              fontSize: '14px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              whiteSpace: 'nowrap'
+                            }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
+                              <line x1="7" y1="7" x2="7.01" y2="7"></line>
+                            </svg>
+                            Filter by Tag
+                            {selectedTagFilters.length > 0 && (
+                              <span style={{
+                                background: '#1a73e8',
+                                color: '#fff',
+                                borderRadius: '10px',
+                                padding: '2px 6px',
+                                fontSize: '11px',
+                                fontWeight: '500'
+                              }}>
+                                {selectedTagFilters.length}
+                              </span>
+                            )}
+                          </button>
+                          <div
+                            id="property-tag-filter-dropdown"
+                            style={{
+                              display: 'none',
+                              position: 'absolute',
+                              top: '100%',
+                              left: 0,
+                              marginTop: '4px',
+                              background: '#fff',
+                              border: '1px solid #dadce0',
+                              borderRadius: '8px',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                              zIndex: 1000,
+                              minWidth: '200px',
+                              maxHeight: '300px',
+                              overflowY: 'auto',
+                              padding: '8px'
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {tags.map(tag => {
+                              const isSelected = selectedTagFilters.includes(tag.id);
+                              const colorMap = {
+                                blue: '#1a73e8',
+                                green: '#10b981',
+                                yellow: '#fbbf24',
+                                orange: '#f97316',
+                                red: '#ef4444',
+                                purple: '#a855f7',
+                                teal: '#14b8a6',
+                                gray: '#6b7280'
+                              };
+                              return (
+                                <label
+                                  key={tag.id}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    padding: '8px',
+                                    cursor: 'pointer',
+                                    borderRadius: '4px'
+                                  }}
+                                  onMouseEnter={(e) => e.target.style.background = '#f8f9fa'}
+                                  onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedTagFilters([...selectedTagFilters, tag.id]);
+                                      } else {
+                                        setSelectedTagFilters(selectedTagFilters.filter(id => id !== tag.id));
+                                      }
+                                    }}
+                                    style={{ cursor: 'pointer' }}
+                                  />
+                                  <div
+                                    style={{
+                                      width: '12px',
+                                      height: '12px',
+                                      borderRadius: '50%',
+                                      background: colorMap[tag.color] || colorMap.blue,
+                                      flexShrink: 0
+                                    }}
+                                  />
+                                  <span style={{ fontSize: '14px', color: '#202124' }}>{tag.name}</span>
+                                </label>
+                              );
+                            })}
+                            {selectedTagFilters.length > 0 && (
+                              <div style={{ padding: '8px', borderTop: '1px solid #e5e7eb', marginTop: '4px' }}>
+                                <button
+                                  onClick={() => {
+                                    setSelectedTagFilters([]);
+                                    document.getElementById('property-tag-filter-dropdown').style.display = 'none';
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '6px',
+                                    background: 'none',
+                                    border: '1px solid #dadce0',
+                                    borderRadius: '4px',
+                                    color: '#5f6368',
+                                    cursor: 'pointer',
+                                    fontSize: '12px'
+                                  }}
+                                >
+                                  Clear filters
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {selectedTagFilters.length > 0 && (
+                          <button
+                            onClick={() => setSelectedTagFilters([])}
+                            style={{
+                              marginLeft: '8px',
+                              background: 'none',
+                              border: 'none',
+                              color: '#5f6368',
+                              cursor: 'pointer',
+                              padding: '4px',
+                              display: 'flex',
+                              alignItems: 'center'
+                            }}
+                            title="Clear tag filters"
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <line x1="18" y1="6" x2="6" y2="18"></line>
+                              <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    )}
                     <button
                       onClick={() => {
                         // Export properties to CSV
@@ -4565,7 +5633,7 @@ function App() {
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '6px',
-                                marginBottom: '12px',
+                                marginBottom: '8px',
                                 fontSize: '14px',
                                 color: '#5f6368'
                               }}>
@@ -4574,6 +5642,27 @@ function App() {
                                   <circle cx="12" cy="10" r="3"></circle>
                                 </svg>
                                 <span>{property.type || 'Property'}</span>
+                              </div>
+
+                              {/* Tags */}
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '12px' }}>
+                                {getTagsForRecord('property', property.id).map(tag => (
+                                  <span
+                                    key={tag.id}
+                                    className={`tag-pill ${tag.color} clickable`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      // Filter by this tag
+                                      if (!selectedTagFilters.includes(tag.id)) {
+                                        setSelectedTagFilters([...selectedTagFilters, tag.id]);
+                                        setActiveTab('properties');
+                                      }
+                                    }}
+                                    title={`Filter by ${tag.name}`}
+                                  >
+                                    {tag.name}
+                                  </span>
+                                ))}
                               </div>
 
                               {/* Stats Row */}
@@ -4916,7 +6005,14 @@ function App() {
                           (request.property && request.property.toLowerCase().includes(maintenanceSearchQuery.toLowerCase())) ||
                           (request.tenantName && request.tenantName.toLowerCase().includes(maintenanceSearchQuery.toLowerCase()));
                         
-                        return matchesStatus && matchesSearch;
+                        // Tag filter
+                        let matchesTags = true;
+                        if (selectedTagFilters.length > 0) {
+                          const requestTagIds = getTagsForRecord('maintenance', request.id).map(tag => tag.id);
+                          matchesTags = selectedTagFilters.every(filterTagId => requestTagIds.includes(filterTagId));
+                        }
+                        
+                        return matchesStatus && matchesSearch && matchesTags;
                       })
                       .map(request => {
                         const priorityStyle = getPriorityBadgeStyle(request.priority);
@@ -4952,7 +6048,7 @@ function App() {
                           >
                             <div style={{ flex: 1 }}>
                               {/* Issue Title with Priority Badge */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
                                 <h3 style={{
                                   fontSize: '16px',
                                   fontWeight: '600',
@@ -4972,6 +6068,23 @@ function App() {
                                 >
                                   {(request.priority || 'medium').toUpperCase()}
                                 </span>
+                                {/* Tags */}
+                                {getTagsForRecord('maintenance', request.id).map(tag => (
+                                  <span
+                                    key={tag.id}
+                                    className={`tag-pill ${tag.color} clickable`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (!selectedTagFilters.includes(tag.id)) {
+                                        setSelectedTagFilters([...selectedTagFilters, tag.id]);
+                                        setActiveTab('maintenance');
+                                      }
+                                    }}
+                                    title={`Filter by ${tag.name}`}
+                                  >
+                                    {tag.name}
+                                  </span>
+                                ))}
                               </div>
 
                               {/* Description */}
@@ -5295,6 +6408,343 @@ function App() {
                         </div>
                       </div>
                     </div>
+
+                    {/* Tag Analysis Section */}
+                    <div style={{background: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginTop: '24px'}}>
+                      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px'}}>
+                        <div>
+                          <h3 style={{margin: '0 0 4px', fontSize: '18px', fontWeight: '500', color: '#202124'}}>Tag Analysis</h3>
+                          <p style={{margin: 0, fontSize: '14px', color: '#5f6368'}}>Track patterns across your portfolio</p>
+                        </div>
+                        <div style={{display: 'flex', gap: '12px', alignItems: 'center'}}>
+                          <select
+                            value={tagAnalysisDateRange}
+                            onChange={(e) => setTagAnalysisDateRange(e.target.value)}
+                            style={{
+                              padding: '8px 12px',
+                              border: '1px solid #dadce0',
+                              borderRadius: '4px',
+                              background: '#fff',
+                              color: '#202124',
+                              fontSize: '14px',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <option value="all">All time</option>
+                            <option value="30">Last 30 days</option>
+                            <option value="90">Last 90 days</option>
+                            <option value="12months">Last 12 months</option>
+                          </select>
+                          <button
+                            className="btn-secondary"
+                            onClick={() => {
+                              const tagAnalysisData = getTagAnalysisData(tagAnalysisDateRange);
+                              const csvData = [];
+                              
+                              // Header
+                              csvData.push(['Record Type', 'Record Name', 'Tag', 'Date Added']);
+                              
+                              // Get all record tags within date range
+                              const now = new Date();
+                              let startDate = null;
+                              if (tagAnalysisDateRange === '30') {
+                                startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                              } else if (tagAnalysisDateRange === '90') {
+                                startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+                              } else if (tagAnalysisDateRange === '12months') {
+                                startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+                              }
+                              
+                              recordTags.forEach(rt => {
+                                if (startDate) {
+                                  const addedDate = new Date(rt.added_at);
+                                  if (addedDate < startDate) return;
+                                }
+                                
+                                const tag = tags.find(t => t.id === rt.tag_id);
+                                if (!tag) return;
+                                
+                                let recordName = 'Unknown';
+                                if (rt.record_type === 'tenant') {
+                                  const tenant = tenants.find(t => t.id === rt.record_id);
+                                  recordName = tenant ? tenant.name : 'Unknown Tenant';
+                                } else if (rt.record_type === 'property') {
+                                  const property = properties.find(p => p.id === rt.record_id);
+                                  recordName = property ? property.address : 'Unknown Property';
+                                } else if (rt.record_type === 'maintenance') {
+                                  const maintenance = maintenanceRequests.find(m => m.id === rt.record_id);
+                                  recordName = maintenance ? maintenance.issue : 'Unknown Request';
+                                }
+                                
+                                csvData.push([
+                                  rt.record_type.charAt(0).toUpperCase() + rt.record_type.slice(1),
+                                  recordName,
+                                  tag.name,
+                                  new Date(rt.added_at).toLocaleDateString()
+                                ]);
+                              });
+                              
+                              const csv = Papa.unparse(csvData);
+                              const blob = new Blob([csv], { type: 'text/csv' });
+                              const url = window.URL.createObjectURL(blob);
+                              const a = document.createElement('a');
+                              a.href = url;
+                              a.download = `tag_report_${tagAnalysisDateRange}_${new Date().toISOString().split('T')[0]}.csv`;
+                              a.click();
+                              window.URL.revokeObjectURL(url);
+                            }}
+                            style={{
+                              padding: '8px 16px',
+                              border: '1px solid #dadce0',
+                              borderRadius: '4px',
+                              background: '#fff',
+                              color: '#202124',
+                              fontSize: '14px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px'
+                            }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                              <polyline points="7 10 12 15 17 10"></polyline>
+                              <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            Export Tag Report
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Tag Summary Table */}
+                      <div style={{marginBottom: '24px'}}>
+                        <table style={{width: '100%', borderCollapse: 'collapse'}}>
+                          <thead>
+                            <tr style={{background: '#f8f9fa', borderBottom: '1px solid #dadce0'}}>
+                              <th style={{padding: '12px', textAlign: 'left', fontSize: '14px', fontWeight: '500', color: '#5f6368'}}>Tag</th>
+                              <th style={{padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '500', color: '#5f6368'}}>Records</th>
+                              <th style={{padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '500', color: '#5f6368'}}>Tenants</th>
+                              <th style={{padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '500', color: '#5f6368'}}>Properties</th>
+                              <th style={{padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '500', color: '#5f6368'}}>Maintenance</th>
+                              <th style={{padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '500', color: '#5f6368'}}>Total Rent Affected</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {getTagAnalysisData(tagAnalysisDateRange).map((tagStat, index) => {
+                              const colorMap = {
+                                blue: '#1a73e8',
+                                green: '#10b981',
+                                yellow: '#fbbf24',
+                                orange: '#f97316',
+                                red: '#ef4444',
+                                purple: '#a855f7',
+                                teal: '#14b8a6',
+                                gray: '#6b7280'
+                              };
+                              const isExpanded = expandedTagRow === tagStat.tag.id;
+                              const tagRecords = recordTags.filter(rt => rt.tag_id === tagStat.tag.id);
+                              
+                              return (
+                                <React.Fragment key={tagStat.tag.id}>
+                                  <tr
+                                    style={{
+                                      borderBottom: '1px solid #e5e7eb',
+                                      cursor: 'pointer',
+                                      background: isExpanded ? '#f8f9fa' : '#fff'
+                                    }}
+                                    onClick={() => setExpandedTagRow(isExpanded ? null : tagStat.tag.id)}
+                                    onMouseEnter={(e) => {
+                                      if (!isExpanded) e.currentTarget.style.background = '#f9fafb';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      if (!isExpanded) e.currentTarget.style.background = '#fff';
+                                    }}
+                                  >
+                                    <td style={{padding: '12px'}}>
+                                      <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
+                                        <div
+                                          style={{
+                                            width: '12px',
+                                            height: '12px',
+                                            borderRadius: '50%',
+                                            background: colorMap[tagStat.tag.color] || colorMap.blue,
+                                            flexShrink: 0
+                                          }}
+                                        />
+                                        <span style={{fontSize: '14px', color: '#202124', fontWeight: '500'}}>{tagStat.tag.name}</span>
+                                        <svg
+                                          width="16"
+                                          height="16"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="2"
+                                          style={{
+                                            marginLeft: '4px',
+                                            transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                                            transition: 'transform 0.2s',
+                                            color: '#5f6368'
+                                          }}
+                                        >
+                                          <polyline points="6 9 12 15 18 9"></polyline>
+                                        </svg>
+                                      </div>
+                                    </td>
+                                    <td style={{padding: '12px', textAlign: 'right', fontSize: '14px', color: '#202124'}}>{tagStat.totalRecords}</td>
+                                    <td style={{padding: '12px', textAlign: 'right', fontSize: '14px', color: '#202124'}}>{tagStat.tenants}</td>
+                                    <td style={{padding: '12px', textAlign: 'right', fontSize: '14px', color: '#202124'}}>{tagStat.properties}</td>
+                                    <td style={{padding: '12px', textAlign: 'right', fontSize: '14px', color: '#202124'}}>{tagStat.maintenance}</td>
+                                    <td style={{padding: '12px', textAlign: 'right', fontSize: '14px', color: '#202124', fontWeight: '500'}}>
+                                      {tagStat.totalRent > 0 ? formatCurrency(tagStat.totalRent) : '-'}
+                                    </td>
+                                  </tr>
+                                  {isExpanded && (
+                                    <tr>
+                                      <td colSpan="6" style={{padding: '16px', background: '#f8f9fa', borderBottom: '1px solid #e5e7eb'}}>
+                                        <div style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
+                                          {tagRecords.map(rt => {
+                                            let recordName = 'Unknown';
+                                            let recordLink = null;
+                                            
+                                            if (rt.record_type === 'tenant') {
+                                              const tenant = tenants.find(t => t.id === rt.record_id);
+                                              if (tenant) {
+                                                recordName = tenant.name;
+                                                recordLink = () => {
+                                                  setSelectedTenant(tenant);
+                                                  setActiveTab('tenants');
+                                                };
+                                              }
+                                            } else if (rt.record_type === 'property') {
+                                              const property = properties.find(p => p.id === rt.record_id);
+                                              if (property) {
+                                                recordName = property.address;
+                                                recordLink = () => {
+                                                  setSelectedProperty(property);
+                                                  setActiveTab('properties');
+                                                };
+                                              }
+                                            } else if (rt.record_type === 'maintenance') {
+                                              const maintenance = maintenanceRequests.find(m => m.id === rt.record_id);
+                                              if (maintenance) {
+                                                recordName = maintenance.issue;
+                                                recordLink = () => {
+                                                  setSelectedMaintenanceRequest(maintenance);
+                                                  setActiveTab('maintenance');
+                                                };
+                                              }
+                                            }
+                                            
+                                            return (
+                                              <div
+                                                key={rt.id}
+                                                style={{
+                                                  display: 'flex',
+                                                  alignItems: 'center',
+                                                  gap: '12px',
+                                                  padding: '8px',
+                                                  background: '#fff',
+                                                  borderRadius: '4px',
+                                                  cursor: recordLink ? 'pointer' : 'default'
+                                                }}
+                                                onClick={recordLink}
+                                                onMouseEnter={(e) => {
+                                                  if (recordLink) e.currentTarget.style.background = '#f0f0f0';
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                  if (recordLink) e.currentTarget.style.background = '#fff';
+                                                }}
+                                              >
+                                                <span style={{
+                                                  fontSize: '12px',
+                                                  padding: '2px 8px',
+                                                  borderRadius: '4px',
+                                                  background: rt.record_type === 'tenant' ? '#e8f0fe' : rt.record_type === 'property' ? '#e6f4ea' : '#fef3c7',
+                                                  color: rt.record_type === 'tenant' ? '#1a73e8' : rt.record_type === 'property' ? '#166534' : '#92400e',
+                                                  fontWeight: '500',
+                                                  textTransform: 'capitalize'
+                                                }}>
+                                                  {rt.record_type}
+                                                </span>
+                                                <span style={{fontSize: '14px', color: '#202124', flex: 1}}>{recordName}</span>
+                                                <span style={{fontSize: '12px', color: '#5f6368'}}>
+                                                  {new Date(rt.added_at).toLocaleDateString()}
+                                                </span>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </React.Fragment>
+                              );
+                            })}
+                            {getTagAnalysisData(tagAnalysisDateRange).length === 0 && (
+                              <tr>
+                                <td colSpan="6" style={{padding: '40px', textAlign: 'center', color: '#5f6368'}}>
+                                  No tags found for the selected date range
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Tag Trend Chart */}
+                      <div style={{marginTop: '32px'}}>
+                        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px'}}>
+                          <div>
+                            <h4 style={{margin: '0 0 4px', fontSize: '16px', fontWeight: '500', color: '#202124'}}>Tag Trend</h4>
+                            <p style={{margin: 0, fontSize: '14px', color: '#5f6368'}}>Track tag frequency over time</p>
+                          </div>
+                          <select
+                            value={selectedTagForTrend || ''}
+                            onChange={(e) => setSelectedTagForTrend(e.target.value || null)}
+                            style={{
+                              padding: '8px 12px',
+                              border: '1px solid #dadce0',
+                              borderRadius: '4px',
+                              background: '#fff',
+                              color: '#202124',
+                              fontSize: '14px',
+                              cursor: 'pointer',
+                              minWidth: '200px'
+                            }}
+                          >
+                            <option value="">Select a tag...</option>
+                            {tags.map(tag => (
+                              <option key={tag.id} value={tag.id}>{tag.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        {selectedTagForTrend && (() => {
+                          const trendData = getTagTrendData(selectedTagForTrend, tagAnalysisDateRange);
+                          return trendData.length > 0 ? (
+                            <div style={{height: '300px'}}>
+                              <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={trendData}>
+                                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                  <XAxis dataKey="month" stroke="#5f6368" />
+                                  <YAxis stroke="#5f6368" />
+                                  <Tooltip />
+                                  <Line type="monotone" dataKey="count" stroke="#1a73e8" strokeWidth={2} dot={{ fill: '#1a73e8', r: 4 }} />
+                                </LineChart>
+                              </ResponsiveContainer>
+                            </div>
+                          ) : (
+                            <div style={{padding: '40px', textAlign: 'center', color: '#5f6368', background: '#f8f9fa', borderRadius: '8px'}}>
+                              No data available for this tag in the selected date range
+                            </div>
+                          );
+                        })()}
+                        {!selectedTagForTrend && (
+                          <div style={{padding: '40px', textAlign: 'center', color: '#5f6368', background: '#f8f9fa', borderRadius: '8px'}}>
+                            Select a tag to view its trend
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 );
               })()}
@@ -5314,7 +6764,7 @@ function App() {
                     borderBottom: '1px solid #dadce0',
                     marginBottom: '32px'
                   }}>
-                    {['profile', 'notifications', 'security', 'billing', 'company'].map((tab) => (
+                    {['profile', 'notifications', 'security', 'billing', 'company', 'tags'].map((tab) => (
                       <button
                         key={tab}
                         onClick={() => setSettingsTab(tab)}
@@ -5334,7 +6784,8 @@ function App() {
                         {tab === 'profile' ? 'Profile' : 
                          tab === 'notifications' ? 'Notifications' :
                          tab === 'security' ? 'Security' :
-                         tab === 'billing' ? 'Billing' : 'Company'}
+                         tab === 'billing' ? 'Billing' : 
+                         tab === 'company' ? 'Company' : 'Tags'}
                       </button>
                     ))}
                   </div>
@@ -6368,6 +7819,144 @@ function App() {
                     </div>
                       </>
                     )}
+
+                    {/* Tags Tab */}
+                    {settingsTab === 'tags' && (
+                      <>
+                        {/* Tags Header */}
+                        <div style={{
+                          background: '#fff',
+                          border: '1px solid #dadce0',
+                          borderRadius: '12px',
+                          padding: '24px',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                          marginBottom: '20px'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                            <div>
+                              <h3 style={{ fontSize: '18px', fontWeight: '500', color: '#202124', margin: '0 0 4px 0' }}>Manage Tags</h3>
+                              <p style={{ fontSize: '14px', color: '#5f6368', margin: 0 }}>Create tags to track and categorize records</p>
+                            </div>
+                            <button
+                              className="btn-primary"
+                              onClick={() => setShowCreateTagModal(true)}
+                              style={{
+                                background: '#1a73e8',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: '4px',
+                                padding: '10px 24px',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px'
+                              }}
+                            >
+                              + Create Tag
+                            </button>
+                          </div>
+
+                          {/* Tags Grid */}
+                          <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(3, 1fr)',
+                            gap: '16px',
+                            marginTop: '24px'
+                          }}>
+                            {tags.map(tag => {
+                              const recordCount = getTagRecordCount(tag.id);
+                              const colorMap = {
+                                blue: '#1a73e8',
+                                green: '#10b981',
+                                yellow: '#fbbf24',
+                                orange: '#f97316',
+                                red: '#ef4444',
+                                purple: '#a855f7',
+                                teal: '#14b8a6',
+                                gray: '#6b7280'
+                              };
+                              const tagColor = colorMap[tag.color] || colorMap.blue;
+
+                              return (
+                                <div
+                                  key={tag.id}
+                                  style={{
+                                    background: '#f8f9fa',
+                                    border: '1px solid #e5e7eb',
+                                    borderRadius: '8px',
+                                    padding: '16px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: '12px'
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+                                    <div
+                                      style={{
+                                        background: tagColor,
+                                        color: '#fff',
+                                        padding: '4px 12px',
+                                        borderRadius: '16px',
+                                        fontSize: '12px',
+                                        fontWeight: '500',
+                                        whiteSpace: 'nowrap',
+                                        flexShrink: 0
+                                      }}
+                                    >
+                                      {tag.name}
+                                    </div>
+                                    <span style={{ fontSize: '14px', color: '#5f6368', whiteSpace: 'nowrap' }}>
+                                      ({recordCount})
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={async () => {
+                                      if (confirm(`Are you sure you want to delete the tag "${tag.name}"? This will remove it from all records.`)) {
+                                        try {
+                                          await deleteTag(tag.id);
+                                        } catch (error) {
+                                          // Error already handled in deleteTag
+                                        }
+                                      }
+                                    }}
+                                    style={{
+                                      background: 'none',
+                                      border: 'none',
+                                      color: '#ef4444',
+                                      cursor: 'pointer',
+                                      padding: '4px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      borderRadius: '4px',
+                                      flexShrink: 0
+                                    }}
+                                    onMouseEnter={(e) => e.target.style.background = 'rgba(239, 68, 68, 0.1)'}
+                                    onMouseLeave={(e) => e.target.style.background = 'none'}
+                                    title="Delete tag"
+                                    aria-label="Delete tag"
+                                  >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                      <line x1="18" y1="6" x2="6" y2="18"></line>
+                                      <line x1="6" y1="6" x2="18" y2="18"></line>
+                                    </svg>
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {tags.length === 0 && (
+                            <div style={{ textAlign: 'center', padding: '40px', color: '#5f6368' }}>
+                              <p>No tags yet. Create your first tag to get started.</p>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -6895,6 +8484,27 @@ function App() {
                     </div>
                   )}
                 </div>
+              </div>
+
+              <div className="section-divider"></div>
+
+              <div className="detail-section">
+                <h4>Tags</h4>
+                <TagPicker
+                  recordType="tenant"
+                  recordId={selectedTenant.id}
+                  onTagsChange={async () => {
+                    await refreshData();
+                    const { data: tenantData } = await supabase
+                      .from('tenants')
+                      .select('*')
+                      .eq('id', selectedTenant.id)
+                      .single();
+                    if (tenantData) {
+                      setSelectedTenant(transformTenant(tenantData));
+                    }
+                  }}
+                />
               </div>
 
               <div className="section-divider"></div>
@@ -8420,6 +10030,136 @@ function App() {
                   </div>
                 </div>
 
+                {/* Tags */}
+                <div className="detail-section">
+                  <h4>Tags</h4>
+                  <TagPicker
+                    recordType="property"
+                    recordId={selectedProperty.id}
+                    onTagsChange={async () => {
+                      await refreshData();
+                      const { data: propertyData } = await supabase
+                        .from('properties')
+                        .select('*')
+                        .eq('id', selectedProperty.id)
+                        .single();
+                      if (propertyData) {
+                        setSelectedProperty(transformProperty(propertyData));
+                      }
+                    }}
+                  />
+                </div>
+
+                {/* Tag History */}
+                {getTagHistoryForRecord('property', selectedProperty.id).length > 0 && (
+                  <>
+                    <div className="section-divider"></div>
+                    <div className="detail-section">
+                      <h4>Tag History</h4>
+                      <div style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
+                        {getTagHistoryForRecord('property', selectedProperty.id).map((historyItem, index) => {
+                          const tag = tags.find(t => t.id === historyItem.tag_id);
+                          const colorMap = {
+                            blue: '#1a73e8',
+                            green: '#10b981',
+                            yellow: '#fbbf24',
+                            orange: '#f97316',
+                            red: '#ef4444',
+                            purple: '#a855f7',
+                            teal: '#14b8a6',
+                            gray: '#6b7280'
+                          };
+                          return (
+                            <div
+                              key={historyItem.id || index}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '8px',
+                                background: '#f8f9fa',
+                                borderRadius: '4px',
+                                fontSize: '14px'
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: '12px',
+                                  height: '12px',
+                                  borderRadius: '50%',
+                                  background: tag ? (colorMap[tag.color] || colorMap.blue) : '#6b7280',
+                                  flexShrink: 0
+                                }}
+                              />
+                              <span style={{color: '#202124', flex: 1}}>
+                                <strong>{historyItem.tag_name || 'Unknown tag'}</strong> {historyItem.action === 'added' ? 'added' : 'removed'}
+                              </span>
+                              <span style={{color: '#5f6368', fontSize: '12px'}}>
+                                {new Date(historyItem.action_at).toLocaleDateString()}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Tag History */}
+                {getTagHistoryForRecord('property', selectedProperty.id).length > 0 && (
+                  <>
+                    <div className="detail-section">
+                      <h4>Tag History</h4>
+                      <div style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
+                        {getTagHistoryForRecord('property', selectedProperty.id).map((historyItem, index) => {
+                          const tag = tags.find(t => t.id === historyItem.tag_id);
+                          const colorMap = {
+                            blue: '#1a73e8',
+                            green: '#10b981',
+                            yellow: '#fbbf24',
+                            orange: '#f97316',
+                            red: '#ef4444',
+                            purple: '#a855f7',
+                            teal: '#14b8a6',
+                            gray: '#6b7280'
+                          };
+                          return (
+                            <div
+                              key={historyItem.id || index}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '8px',
+                                background: '#f8f9fa',
+                                borderRadius: '4px',
+                                fontSize: '14px'
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: '12px',
+                                  height: '12px',
+                                  borderRadius: '50%',
+                                  background: tag ? (colorMap[tag.color] || colorMap.blue) : '#6b7280',
+                                  flexShrink: 0
+                                }}
+                              />
+                              <span style={{color: '#202124', flex: 1}}>
+                                <strong>{historyItem.tag_name || 'Unknown tag'}</strong> {historyItem.action === 'added' ? 'added' : 'removed'}
+                              </span>
+                              <span style={{color: '#5f6368', fontSize: '12px'}}>
+                                {new Date(historyItem.action_at).toLocaleDateString()}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="section-divider"></div>
+                  </>
+                )}
+
                 {/* Tenants at this property */}
                 <div className="detail-section">
                   <h4>Current Tenants</h4>
@@ -8522,6 +10262,335 @@ function App() {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Maintenance Request Detail Modal */}
+      {selectedMaintenanceRequest && (
+        <div className="modal-overlay" onClick={() => setSelectedMaintenanceRequest(null)}>
+          <div className="modal tenant-detail-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header modal-header-fixed">
+              <div className="modal-header-content">
+                <h2>{selectedMaintenanceRequest.issue}</h2>
+                <div className="header-badges">
+                  <span className="badge" style={getPriorityBadgeStyle(selectedMaintenanceRequest.priority)}>
+                    {(selectedMaintenanceRequest.priority || 'medium').toUpperCase()}
+                  </span>
+                  <span className="badge" style={getMaintenanceStatusBadgeStyle(selectedMaintenanceRequest.status)}>
+                    {getMaintenanceStatusDisplay(selectedMaintenanceRequest.status)}
+                  </span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  className="btn-secondary"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    await refreshData();
+                    const { data: maintenanceData } = await supabase
+                      .from('maintenance_requests')
+                      .select('*')
+                      .eq('id', selectedMaintenanceRequest.id)
+                      .single();
+                    if (maintenanceData) {
+                      setSelectedMaintenanceRequest(transformMaintenanceRequest(maintenanceData));
+                    }
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                  title="Refresh data"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                  </svg>
+                  Refresh
+                </button>
+                <button className="close-btn" onClick={() => setSelectedMaintenanceRequest(null)}>×</button>
+              </div>
+            </div>
+            <div className="tenant-detail-view modal-content-scrollable">
+              <div className="detail-section">
+                <h4>Request Details</h4>
+                <div className="property-info-grid">
+                  <div className="info-item">
+                    <span className="info-label">Property: </span>
+                    <span className="info-value">{selectedMaintenanceRequest.property || 'Not specified'}</span>
+                  </div>
+                  {selectedMaintenanceRequest.tenantName && (
+                    <div className="info-item">
+                      <span className="info-label">Tenant: </span>
+                      <span className="info-value">{selectedMaintenanceRequest.tenantName}</span>
+                    </div>
+                  )}
+                  <div className="info-item">
+                    <span className="info-label">Created: </span>
+                    <span className="info-value">{selectedMaintenanceRequest.date ? new Date(selectedMaintenanceRequest.date).toLocaleDateString() : 'N/A'}</span>
+                  </div>
+                  {selectedMaintenanceRequest.assignedTo && (
+                    <div className="info-item">
+                      <span className="info-label">Assigned To: </span>
+                      <span className="info-value">{selectedMaintenanceRequest.assignedTo}</span>
+                    </div>
+                  )}
+                </div>
+                {selectedMaintenanceRequest.description && (
+                  <div style={{ marginTop: '16px' }}>
+                    <span className="info-label">Description: </span>
+                    <p style={{ margin: '8px 0 0', color: '#202124' }}>{selectedMaintenanceRequest.description}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="section-divider"></div>
+
+              <div className="detail-section">
+                <h4>Tags</h4>
+                <TagPicker
+                  recordType="maintenance"
+                  recordId={selectedMaintenanceRequest.id}
+                  onTagsChange={async () => {
+                    await refreshData();
+                    const { data: maintenanceData } = await supabase
+                      .from('maintenance_requests')
+                      .select('*')
+                      .eq('id', selectedMaintenanceRequest.id)
+                      .single();
+                    if (maintenanceData) {
+                      setSelectedMaintenanceRequest(transformMaintenanceRequest(maintenanceData));
+                    }
+                  }}
+                />
+              </div>
+
+              {/* Tag History */}
+              {getTagHistoryForRecord('maintenance', selectedMaintenanceRequest.id).length > 0 && (
+                <>
+                  <div className="section-divider"></div>
+                  <div className="detail-section">
+                    <h4>Tag History</h4>
+                    <div style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
+                      {getTagHistoryForRecord('maintenance', selectedMaintenanceRequest.id).map((historyItem, index) => {
+                        const tag = tags.find(t => t.id === historyItem.tag_id);
+                        const colorMap = {
+                          blue: '#1a73e8',
+                          green: '#10b981',
+                          yellow: '#fbbf24',
+                          orange: '#f97316',
+                          red: '#ef4444',
+                          purple: '#a855f7',
+                          teal: '#14b8a6',
+                          gray: '#6b7280'
+                        };
+                        return (
+                          <div
+                            key={historyItem.id || index}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              padding: '8px',
+                              background: '#f8f9fa',
+                              borderRadius: '4px',
+                              fontSize: '14px'
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: '12px',
+                                height: '12px',
+                                borderRadius: '50%',
+                                background: tag ? (colorMap[tag.color] || colorMap.blue) : '#6b7280',
+                                flexShrink: 0
+                              }}
+                            />
+                            <span style={{color: '#202124', flex: 1}}>
+                              <strong>{historyItem.tag_name || 'Unknown tag'}</strong> {historyItem.action === 'added' ? 'added' : 'removed'}
+                            </span>
+                            <span style={{color: '#5f6368', fontSize: '12px'}}>
+                              {new Date(historyItem.action_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Tag Modal */}
+      {showCreateTagModal && (
+        <div className="modal-overlay" onClick={() => {
+          setShowCreateTagModal(false);
+          setNewTag({ name: '', color: 'blue' });
+        }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <div className="modal-header">
+              <h2>Create Tag</h2>
+              <button className="close-btn" onClick={() => {
+                setShowCreateTagModal(false);
+                setNewTag({ name: '', color: 'blue' });
+              }}>×</button>
+            </div>
+            <div className="modal-content">
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                try {
+                  await createTag(newTag.name, newTag.color);
+                  setShowCreateTagModal(false);
+                  setNewTag({ name: '', color: 'blue' });
+                } catch (error) {
+                  // Error already handled in createTag
+                }
+              }}>
+                <div className="form-group full-width">
+                  <label>Tag name</label>
+                  <input
+                    type="text"
+                    value={newTag.name}
+                    onChange={(e) => {
+                      // Auto-convert spaces to underscores and lowercase
+                      const value = e.target.value.toLowerCase().replace(/\s+/g, '_');
+                      setNewTag({ ...newTag, name: value });
+                    }}
+                    placeholder="e.g., late_payment"
+                    required
+                    pattern="[a-z0-9_]+"
+                    title="Tag name must be lowercase letters, numbers, and underscores only"
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      border: '1px solid #dadce0',
+                      borderRadius: '4px',
+                      fontSize: '14px',
+                      color: '#202124'
+                    }}
+                  />
+                  <p style={{ fontSize: '12px', color: '#5f6368', margin: '4px 0 0 0' }}>
+                    Use lowercase letters, numbers, and underscores only. Spaces will be converted to underscores.
+                  </p>
+                </div>
+
+                <div className="form-group full-width">
+                  <label>Color</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginTop: '8px' }}>
+                    {[
+                      { name: 'blue', hex: '#1a73e8' },
+                      { name: 'green', hex: '#10b981' },
+                      { name: 'yellow', hex: '#fbbf24' },
+                      { name: 'orange', hex: '#f97316' },
+                      { name: 'red', hex: '#ef4444' },
+                      { name: 'purple', hex: '#a855f7' },
+                      { name: 'teal', hex: '#14b8a6' },
+                      { name: 'gray', hex: '#6b7280' }
+                    ].map(color => (
+                      <button
+                        key={color.name}
+                        type="button"
+                        onClick={() => setNewTag({ ...newTag, color: color.name })}
+                        style={{
+                          width: '100%',
+                          height: '48px',
+                          background: newTag.color === color.name ? color.hex : '#f8f9fa',
+                          border: newTag.color === color.name ? `3px solid ${color.hex}` : '2px solid #e5e7eb',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (newTag.color !== color.name) {
+                            e.currentTarget.style.borderColor = color.hex;
+                            e.currentTarget.style.background = color.hex + '20';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (newTag.color !== color.name) {
+                            e.currentTarget.style.borderColor = '#e5e7eb';
+                            e.currentTarget.style.background = '#f8f9fa';
+                          }
+                        }}
+                        title={color.name.charAt(0).toUpperCase() + color.name.slice(1)}
+                      >
+                        {newTag.color === color.name && (
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                          </svg>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Tag Preview */}
+                <div className="form-group full-width" style={{ marginTop: '16px', padding: '16px', background: '#f8f9fa', borderRadius: '8px' }}>
+                  <label style={{ fontSize: '12px', color: '#5f6368', marginBottom: '8px', display: 'block' }}>Preview</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {newTag.name ? (
+                      <>
+                        <div
+                          style={{
+                            background: (() => {
+                              const colorMap = {
+                                blue: '#1a73e8',
+                                green: '#10b981',
+                                yellow: '#fbbf24',
+                                orange: '#f97316',
+                                red: '#ef4444',
+                                purple: '#a855f7',
+                                teal: '#14b8a6',
+                                gray: '#6b7280'
+                              };
+                              return colorMap[newTag.color] || colorMap.blue;
+                            })(),
+                            color: '#fff',
+                            padding: '6px 16px',
+                            borderRadius: '16px',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            display: 'inline-block'
+                          }}
+                        >
+                          {newTag.name}
+                        </div>
+                        <span style={{ fontSize: '12px', color: '#5f6368' }}>(0)</span>
+                      </>
+                    ) : (
+                      <span style={{ fontSize: '14px', color: '#9aa0a6', fontStyle: 'italic' }}>Enter a tag name to see preview</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="modal-actions" style={{ marginTop: '24px' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      setShowCreateTagModal(false);
+                      setNewTag({ name: '', color: 'blue' });
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn-primary">
+                    Create Tag
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>

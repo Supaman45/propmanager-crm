@@ -1695,3 +1695,72 @@ body.dark-mode .user-menu-item {
 body.dark-mode .user-menu-item:hover {
   background: #3c4043;
 }
+
+/* Tag Pill Styles */
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  margin-right: 4px;
+  margin-bottom: 4px;
+  cursor: default;
+}
+
+.tag-pill.blue { background: #e8f0fe; color: #1a73e8; }
+.tag-pill.green { background: #e6f4ea; color: #1e8e3e; }
+.tag-pill.yellow { background: #fef7e0; color: #f9ab00; }
+.tag-pill.orange { background: #feefe3; color: #e8710a; }
+.tag-pill.red { background: #fce8e6; color: #d93025; }
+.tag-pill.purple { background: #f3e8fd; color: #9334e6; }
+.tag-pill.teal { background: #e4f7fb; color: #0891b2; }
+.tag-pill.gray { background: #f1f3f4; color: #5f6368; }
+
+.tag-pill.clickable {
+  cursor: pointer;
+}
+
+.tag-pill.clickable:hover {
+  opacity: 0.8;
+}
+
+.tag-pill .tag-remove {
+  margin-left: 4px;
+  cursor: pointer;
+  padding: 0 2px;
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.7;
+}
+
+.tag-pill .tag-remove:hover {
+  opacity: 1;
+}
+
+/* Tag Picker Dropdown */
+.tag-picker-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: '4px';
+  background: #fff;
+  border: 1px solid #dadce0;
+  borderRadius: '8px';
+  boxShadow: '0 2px 8px rgba(0,0,0,0.15)';
+  zIndex: 1000;
+  minWidth: '250px';
+  maxHeight: '300px';
+  overflowY: 'auto';
+}
+
+/* Dark mode for tags */
+body.dark-mode .tag-pill.blue { background: #1a237e; color: #8ab4f8; }
+body.dark-mode .tag-pill.green { background: #1b5e20; color: #81c995; }
+body.dark-mode .tag-pill.yellow { background: #f57f17; color: #fff9c4; }
+body.dark-mode .tag-pill.orange { background: #e65100; color: #ffcc80; }
+body.dark-mode .tag-pill.red { background: #b71c1c; color: #ef9a9a; }
+body.dark-mode .tag-pill.purple { background: #4a148c; color: #ce93d8; }
+body.dark-mode .tag-pill.teal { background: #004d40; color: #80deea; }
+body.dark-mode .tag-pill.gray { background: #424242; color: #bdbdbd; }
