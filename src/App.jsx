@@ -127,6 +127,7 @@ function App() {
   const [selectedTenant, setSelectedTenant] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
   const [tenantSearchQuery, setTenantSearchQuery] = useState('');
+  const [propertySearchQuery, setPropertySearchQuery] = useState('');
   const [confirmPaymentChange, setConfirmPaymentChange] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [showPaymentLog, setShowPaymentLog] = useState(null);
@@ -3619,76 +3620,445 @@ function App() {
 
               {activeTab === 'properties' && (
                 <div className="content-section">
-            <div className="section-header">
-              <h2>Property Portfolio</h2>
-              <button className="btn-primary" onClick={() => setShowAddPropertyModal(true)}>+ Add Property</button>
-            </div>
-
-            <div className="property-list">
-              {properties.map(property => {
-                const totalExpenses = (property.expenses || []).reduce((sum, e) => sum + e.amount, 0);
-                return (
-                  <div 
-                    key={property.id} 
-                    className="property-card"
-                    onClick={() => setSelectedProperty(property)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <div className="property-card-content">
-                      {property.photoUrl && (
-                        <div className="property-card-photo">
-                          <img 
-                            src={property.photoUrl} 
-                            alt={property.address}
-                            className="property-thumbnail"
-                          />
-                        </div>
-                      )}
-                      <div className="property-card-details">
-                        <div className="property-main">
-                          <h3>{property.address}</h3>
-                          <span className="property-type">{property.type}</span>
-                        </div>
-                        <div className="property-stats">
-                          <div className="property-stat">
-                            <span className="label">Units:</span>
-                            <span className="value">{property.units}</span>
-                          </div>
-                          <div className="property-stat">
-                            <span className="label">Occupied:</span>
-                            <span className="value">{property.occupied}/{property.units}</span>
-                          </div>
-                          <div className="property-stat">
-                            <span className="label">Monthly Revenue:</span>
-                            <span className="value">${property.monthlyRevenue.toLocaleString()}</span>
-                          </div>
-                        </div>
+                  {/* Header */}
+                  <div style={{ marginBottom: '24px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <div>
+                        <h1 style={{ fontSize: '32px', fontWeight: '400', color: '#202124', margin: '0 0 8px 0' }}>Properties</h1>
+                        <p style={{ fontSize: '14px', color: '#5f6368', margin: 0 }}>Manage your property portfolio</p>
                       </div>
+                      <button 
+                        className="btn-primary" 
+                        onClick={() => setShowAddPropertyModal(true)}
+                        style={{
+                          background: '#1a73e8',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '4px',
+                          padding: '10px 24px',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px'
+                        }}
+                      >
+                        + Add Property
+                      </button>
                     </div>
-                    <div className="occupancy-bar">
-                      <div 
-                        className="occupancy-fill" 
-                        style={{ width: `${(property.occupied / property.units) * 100}%` }}
-                      ></div>
-                    </div>
-                    {(property.expenses || []).length > 0 && (
-                      <div className="expense-list">
-                        <h4>Recent Expenses</h4>
-                        {(property.expenses || []).slice(-3).reverse().map(expense => (
-                          <div key={expense.id} className="expense-item">
-                            <span>{expense.description}</span>
-                            <span>${expense.amount.toLocaleString()}</span>
-                            <span className="expense-date">{new Date(expense.date).toLocaleDateString()}</span>
+                  </div>
+
+                  {/* Stats Cards Row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
+                    {(() => {
+                      const totalProperties = properties.length;
+                      const totalUnits = properties.reduce((sum, p) => sum + (p.units || 0), 0);
+                      const totalOccupied = properties.reduce((sum, p) => sum + (p.occupied || 0), 0);
+                      const occupancyRate = totalUnits > 0 ? Math.round((totalOccupied / totalUnits) * 100) : 0;
+                      
+                      return (
+                        <>
+                          {/* Total Properties Card */}
+                          <div style={{
+                            background: '#fff',
+                            border: '1px solid #dadce0',
+                            borderRadius: '8px',
+                            padding: '20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '16px'
+                          }}>
+                            <div style={{
+                              width: '48px',
+                              height: '48px',
+                              borderRadius: '50%',
+                              background: '#e8f0fe',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0
+                            }}>
+                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" strokeWidth="2">
+                                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                                <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                              </svg>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '14px', color: '#5f6368', marginBottom: '4px' }}>Total Properties</div>
+                              <div style={{ fontSize: '32px', fontWeight: '400', color: '#202124' }}>{totalProperties}</div>
+                            </div>
                           </div>
-                        ))}
+
+                          {/* Total Units Card */}
+                          <div style={{
+                            background: '#fff',
+                            border: '1px solid #dadce0',
+                            borderRadius: '8px',
+                            padding: '20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '16px'
+                          }}>
+                            <div style={{
+                              width: '48px',
+                              height: '48px',
+                              borderRadius: '50%',
+                              background: '#e8f0fe',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0
+                            }}>
+                              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" strokeWidth="2">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="9" cy="7" r="4"></circle>
+                                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                              </svg>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '14px', color: '#5f6368', marginBottom: '4px' }}>Total Units</div>
+                              <div style={{ fontSize: '32px', fontWeight: '400', color: '#202124', marginBottom: '4px' }}>{totalUnits}</div>
+                              <div style={{ fontSize: '14px', color: '#5f6368' }}>{totalOccupied} occupied</div>
+                            </div>
+                          </div>
+
+                          {/* Occupancy Rate Card */}
+                          <div style={{
+                            background: '#fff',
+                            border: '1px solid #dadce0',
+                            borderRadius: '8px',
+                            padding: '20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '16px'
+                          }}>
+                            <div style={{ position: 'relative', width: '64px', height: '64px', flexShrink: 0 }}>
+                              <svg width="64" height="64" style={{ transform: 'rotate(-90deg)' }}>
+                                <circle
+                                  cx="32"
+                                  cy="32"
+                                  r="28"
+                                  fill="none"
+                                  stroke="#e5e7eb"
+                                  strokeWidth="4"
+                                />
+                                <circle
+                                  cx="32"
+                                  cy="32"
+                                  r="28"
+                                  fill="none"
+                                  stroke="#1a73e8"
+                                  strokeWidth="4"
+                                  strokeDasharray={`${2 * Math.PI * 28}`}
+                                  strokeDashoffset={`${2 * Math.PI * 28 * (1 - occupancyRate / 100)}`}
+                                  strokeLinecap="round"
+                                />
+                              </svg>
+                              <div style={{
+                                position: 'absolute',
+                                top: '50%',
+                                left: '50%',
+                                transform: 'translate(-50%, -50%)',
+                                fontSize: '16px',
+                                fontWeight: '500',
+                                color: '#202124'
+                              }}>
+                                {occupancyRate}%
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '14px', color: '#5f6368', marginBottom: '4px' }}>Occupancy Rate</div>
+                              <div style={{ fontSize: '20px', fontWeight: '400', color: '#202124' }}>{occupancyRate}%</div>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Search and Export Bar */}
+                  <div style={{ 
+                    display: 'flex', 
+                    gap: '12px', 
+                    marginBottom: '24px',
+                    alignItems: 'center'
+                  }}>
+                    <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
+                      <input
+                        type="text"
+                        placeholder="Search properties..."
+                        value={propertySearchQuery}
+                        onChange={(e) => setPropertySearchQuery(e.target.value)}
+                        style={{
+                          width: '100%',
+                          height: '40px',
+                          padding: '0 16px 0 40px',
+                          border: '1px solid #dadce0',
+                          borderRadius: '4px',
+                          fontSize: '14px',
+                          color: '#202124'
+                        }}
+                      />
+                      <svg 
+                        width="20" 
+                        height="20" 
+                        viewBox="0 0 24 24" 
+                        fill="none" 
+                        stroke="#5f6368" 
+                        strokeWidth="2"
+                        style={{
+                          position: 'absolute',
+                          left: '12px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          pointerEvents: 'none'
+                        }}
+                      >
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <path d="m21 21-4.35-4.35"></path>
+                      </svg>
+                    </div>
+                    <button
+                      onClick={() => {
+                        // Export properties to CSV
+                        const csvData = properties.map(p => ({
+                          Address: p.address,
+                          Type: p.type || '',
+                          Units: p.units,
+                          Occupied: p.occupied,
+                          'Monthly Revenue': p.monthlyRevenue,
+                          'Owner Name': p.ownerName || '',
+                          'Owner Email': p.ownerEmail || ''
+                        }));
+                        const csv = Papa.unparse(csvData);
+                        const blob = new Blob([csv], { type: 'text/csv' });
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'properties.csv';
+                        a.click();
+                      }}
+                      style={{
+                        height: '40px',
+                        padding: '0 16px',
+                        border: '1px solid #dadce0',
+                        borderRadius: '4px',
+                        background: '#fff',
+                        color: '#202124',
+                        fontSize: '14px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                      }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                      </svg>
+                      Export
+                    </button>
+                  </div>
+
+                  {/* Property Cards Grid */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: '24px'
+                  }}>
+                    {properties
+                      .filter(property => {
+                        if (!propertySearchQuery || !propertySearchQuery.trim()) return true;
+                        const search = propertySearchQuery.toLowerCase();
+                        return (property.address && property.address.toLowerCase().includes(search)) ||
+                               (property.type && property.type.toLowerCase().includes(search));
+                      })
+                      .map(property => {
+                        const available = (property.units || 0) - (property.occupied || 0);
+                        const isFull = available === 0;
+                        const occupancyPercentage = property.units > 0 
+                          ? Math.round(((property.occupied || 0) / property.units) * 100) 
+                          : 0;
+                        
+                        return (
+                          <div
+                            key={property.id}
+                            style={{
+                              background: '#fff',
+                              borderRadius: '12px',
+                              overflow: 'hidden',
+                              boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                              transition: 'box-shadow 0.2s, transform 0.2s',
+                              cursor: 'pointer'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
+                              e.currentTarget.style.transform = 'translateY(-2px)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+                              e.currentTarget.style.transform = 'translateY(0)';
+                            }}
+                          >
+                            {/* Property Photo */}
+                            <div
+                              onClick={() => setSelectedProperty(property)}
+                              style={{
+                                position: 'relative',
+                                width: '100%',
+                                height: '180px',
+                                overflow: 'hidden',
+                                background: property.photoUrl 
+                                  ? 'transparent' 
+                                  : 'linear-gradient(135deg, #e0f2fe 0%, #1a73e8 100%)',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {property.photoUrl ? (
+                                <img
+                                  src={property.photoUrl}
+                                  alt={property.address}
+                                  style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'cover'
+                                  }}
+                                />
+                              ) : (
+                                <div style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center'
+                                }}>
+                                  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" opacity={0.8}>
+                                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                                    <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                                  </svg>
+                                </div>
+                              )}
+                              
+                              {/* Availability Badge */}
+                              <div style={{
+                                position: 'absolute',
+                                top: '12px',
+                                right: '12px',
+                                padding: '6px 12px',
+                                borderRadius: '12px',
+                                fontSize: '12px',
+                                fontWeight: '500',
+                                background: isFull ? '#fee2e2' : '#dcfce7',
+                                color: isFull ? '#991b1b' : '#166534'
+                              }}>
+                                {isFull ? 'Full' : `${available} Available`}
+                              </div>
+                            </div>
+
+                            {/* Card Content */}
+                            <div style={{ padding: '16px' }}>
+                              {/* Property Name */}
+                              <h3 style={{
+                                fontSize: '16px',
+                                fontWeight: '600',
+                                color: '#202124',
+                                margin: '0 0 8px 0'
+                              }}>
+                                {property.address}
+                              </h3>
+
+                              {/* Address with Location Icon */}
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                marginBottom: '12px',
+                                fontSize: '14px',
+                                color: '#5f6368'
+                              }}>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                                  <circle cx="12" cy="10" r="3"></circle>
+                                </svg>
+                                <span>{property.type || 'Property'}</span>
+                              </div>
+
+                              {/* Stats Row */}
+                              <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                marginBottom: '16px',
+                                paddingBottom: '16px',
+                                borderBottom: '1px solid #e5e7eb'
+                              }}>
+                                <div>
+                                  <div style={{ fontSize: '12px', color: '#5f6368', marginBottom: '2px' }}>Units</div>
+                                  <div style={{ fontSize: '14px', fontWeight: '500', color: '#202124' }}>
+                                    {property.occupied || 0}/{property.units || 0}
+                                  </div>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: '12px', color: '#5f6368', marginBottom: '2px' }}>Revenue</div>
+                                  <div style={{ fontSize: '14px', fontWeight: '500', color: '#202124' }}>
+                                    ${(property.monthlyRevenue || 0).toLocaleString()}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* View Details Button */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedProperty(property);
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px 16px',
+                                  border: '1px solid #dadce0',
+                                  borderRadius: '4px',
+                                  background: '#fff',
+                                  color: '#202124',
+                                  fontSize: '14px',
+                                  fontWeight: '500',
+                                  cursor: 'pointer',
+                                  transition: 'background-color 0.2s, border-color 0.2s'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = '#f8f9fa';
+                                  e.currentTarget.style.borderColor = '#1a73e8';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = '#fff';
+                                  e.currentTarget.style.borderColor = '#dadce0';
+                                }}
+                              >
+                                View Details
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    {properties.filter(property => {
+                      if (!propertySearchQuery || !propertySearchQuery.trim()) return true;
+                      const search = propertySearchQuery.toLowerCase();
+                      return (property.address && property.address.toLowerCase().includes(search)) ||
+                             (property.type && property.type.toLowerCase().includes(search));
+                    }).length === 0 && (
+                      <div style={{
+                        gridColumn: '1 / -1',
+                        textAlign: 'center',
+                        padding: '40px',
+                        color: '#5f6368'
+                      }}>
+                        No properties found
                       </div>
                     )}
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+                </div>
+              )}
 
               {activeTab === 'maintenance' && (
                 <div className="content-section">
