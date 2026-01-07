@@ -815,6 +815,21 @@ function App() {
   const getAvatarColor = (index) => {
     return avatarColors[index % avatarColors.length];
   };
+  
+  // Get avatar color based on tenant name (for consistent colors)
+  const getAvatarColorByName = (name) => {
+    if (!name) return avatarColors[0];
+    const hash = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return avatarColors[hash % avatarColors.length];
+  };
+  
+  // Format lease end date
+  const formatLeaseEndDate = (leaseEnd, status) => {
+    if (!leaseEnd || status === 'prospect') return 'Pending';
+    const date = new Date(leaseEnd);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+  };
 
   const getActionItems = () => {
     const latePayments = tenants
@@ -3182,107 +3197,425 @@ function App() {
 
               {activeTab === 'tenants' && (
                 <div className="content-section">
-            <div className="section-header">
-              <h2>Tenant Directory</h2>
-              <div className="header-actions">
-                <select 
-                  value={filterStatus} 
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                  className="filter-select"
-                >
-                  <option value="all">All Tenants</option>
-                  <option value="current">Current</option>
-                  <option value="prospect">Prospects</option>
-                  <option value="past">Past</option>
-                  <option value="late">Late Payments</option>
-                </select>
-                <button className="btn-secondary" onClick={exportToCSV}>
-                  Export CSV
-                </button>
-                <button className="btn-primary" onClick={() => setShowAddModal(true)}>
-                  + Add Tenant
-                </button>
-              </div>
-            </div>
-
-            <div className="search-container" style={{ maxWidth: '400px', marginBottom: '24px' }}>
-              <input
-                type="text"
-                placeholder="Search by name or property..."
-                value={tenantSearchQuery}
-                onChange={(e) => setTenantSearchQuery(e.target.value)}
-                className="search-bar"
-                style={{ width: '100%' }}
-              />
-            </div>
-
-            <div className="tenant-list">
-              {filteredTenants.map(tenant => {
-                const leaseExpiringSoon = tenant.leaseEnd && tenant.status === 'current' && (() => {
-                  const endDate = new Date(tenant.leaseEnd);
-                  const today = new Date();
-                  const daysUntilExpiry = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
-                  return daysUntilExpiry <= 90 && daysUntilExpiry >= 0;
-                })();
-
-                return (
-                  <div 
-                    key={tenant.id} 
-                    className="tenant-card"
-                    onClick={() => setSelectedTenant(tenant)}
-                  >
-                    <div className="tenant-card-header">
-                      <div className="tenant-card-name-section">
-                        <h3>
-                          {tenant.name}
-                          {leaseExpiringSoon && (
-                            <span className="warning-icon" title="Lease expires within 90 days">⚠️</span>
-                          )}
-                        </h3>
-                        <p className="tenant-property">{tenant.property}</p>
+                  {/* Header */}
+                  <div style={{ marginBottom: '24px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <div>
+                        <h1 style={{ fontSize: '32px', fontWeight: '400', color: '#202124', margin: '0 0 8px 0' }}>Tenants</h1>
+                        <p style={{ fontSize: '14px', color: '#5f6368', margin: 0 }}>Manage your tenant directory</p>
                       </div>
-                    </div>
-                    <div className="tenant-card-badges">
-                      <span className="badge" style={getStatusBadge(tenant.status)}>
-                        {tenant.status}
-                      </span>
-                      {tenant.status === 'current' && (
-                        <span className="badge" style={getPaymentBadge(tenant.paymentStatus)}>
-                          {tenant.paymentStatus === 'paid' ? 'Rent Paid' : 'Rent Late'}
-                        </span>
-                      )}
-                      {leaseExpiringSoon && (
-                        <span className="badge" style={{ background: '#fef3c7', color: '#92400e' }}>
-                          Lease Expiring
-                        </span>
-                      )}
-                    </div>
-                    <div className="tenant-card-details-grid">
-                      {tenant.phone && (
-                        <div className="tenant-card-detail-item">
-                          <span className="tenant-card-label">Phone</span>
-                          <span className="tenant-card-value">{tenant.phone}</span>
-                        </div>
-                      )}
-                      {tenant.email && (
-                        <div className="tenant-card-detail-item">
-                          <span className="tenant-card-label">Email</span>
-                          <span className="tenant-card-value">{tenant.email}</span>
-                        </div>
-                      )}
-                      {tenant.rentAmount > 0 && (
-                        <div className="tenant-card-detail-item">
-                          <span className="tenant-card-label">Rent</span>
-                          <span className="tenant-card-value">${tenant.rentAmount.toLocaleString()}/mo</span>
-                        </div>
-                      )}
+                      <button 
+                        className="btn-primary" 
+                        onClick={() => setShowAddModal(true)}
+                        style={{
+                          background: '#1a73e8',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '4px',
+                          padding: '10px 24px',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px'
+                        }}
+                      >
+                        + Add Tenant
+                      </button>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+
+                  {/* Search and Filter Bar */}
+                  <div style={{ 
+                    display: 'flex', 
+                    gap: '12px', 
+                    marginBottom: '24px',
+                    alignItems: 'center'
+                  }}>
+                    <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
+                      <input
+                        type="text"
+                        placeholder="Search tenants..."
+                        value={tenantSearchQuery}
+                        onChange={(e) => setTenantSearchQuery(e.target.value)}
+                        style={{
+                          width: '100%',
+                          height: '40px',
+                          padding: '0 16px 0 40px',
+                          border: '1px solid #dadce0',
+                          borderRadius: '4px',
+                          fontSize: '14px',
+                          color: '#202124'
+                        }}
+                      />
+                      <svg 
+                        width="20" 
+                        height="20" 
+                        viewBox="0 0 24 24" 
+                        fill="none" 
+                        stroke="#5f6368" 
+                        strokeWidth="2"
+                        style={{
+                          position: 'absolute',
+                          left: '12px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          pointerEvents: 'none'
+                        }}
+                      >
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <path d="m21 21-4.35-4.35"></path>
+                      </svg>
+                    </div>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <select 
+                        value={filterStatus} 
+                        onChange={(e) => setFilterStatus(e.target.value)}
+                        style={{
+                          height: '40px',
+                          padding: '0 40px 0 16px',
+                          border: '1px solid #dadce0',
+                          borderRadius: '4px',
+                          background: '#fff',
+                          color: '#202124',
+                          fontSize: '14px',
+                          cursor: 'pointer',
+                          appearance: 'none',
+                          backgroundImage: `url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 12 12' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2 4L6 8L10 4' stroke='%235f6368' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
+                          backgroundRepeat: 'no-repeat',
+                          backgroundPosition: 'right 12px center',
+                          paddingRight: '40px'
+                        }}
+                      >
+                        <option value="all">All Tenants</option>
+                        <option value="current">Current</option>
+                        <option value="prospect">Prospects</option>
+                        <option value="past">Past</option>
+                        <option value="late">Late Payments</option>
+                      </select>
+                      <svg 
+                        width="16" 
+                        height="16" 
+                        viewBox="0 0 24 24" 
+                        fill="none" 
+                        stroke="#5f6368" 
+                        strokeWidth="2"
+                        style={{
+                          position: 'absolute',
+                          right: '12px',
+                          pointerEvents: 'none'
+                        }}
+                      >
+                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                      </svg>
+                    </div>
+                    <button
+                      onClick={exportToCSV}
+                      style={{
+                        height: '40px',
+                        padding: '0 16px',
+                        border: '1px solid #dadce0',
+                        borderRadius: '4px',
+                        background: '#fff',
+                        color: '#202124',
+                        fontSize: '14px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                      }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                      </svg>
+                      Export
+                    </button>
+                  </div>
+
+                  {/* Table */}
+                  <div style={{
+                    background: '#fff',
+                    border: '1px solid #dadce0',
+                    borderRadius: '8px',
+                    overflow: 'hidden'
+                  }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ background: '#f8f9fa', borderBottom: '1px solid #dadce0' }}>
+                          <th style={{ 
+                            padding: '12px 16px', 
+                            textAlign: 'left', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#5f6368' 
+                          }}>Tenant</th>
+                          <th style={{ 
+                            padding: '12px 16px', 
+                            textAlign: 'left', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#5f6368' 
+                          }}>Property</th>
+                          <th style={{ 
+                            padding: '12px 16px', 
+                            textAlign: 'left', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#5f6368' 
+                          }}>Rent</th>
+                          <th style={{ 
+                            padding: '12px 16px', 
+                            textAlign: 'left', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#5f6368' 
+                          }}>Lease End</th>
+                          <th style={{ 
+                            padding: '12px 16px', 
+                            textAlign: 'left', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#5f6368' 
+                          }}>Status</th>
+                          <th style={{ 
+                            padding: '12px 16px', 
+                            textAlign: 'center', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#5f6368' 
+                          }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredTenants.map((tenant, index) => {
+                          const isLate = tenant.status === 'current' && tenant.paymentStatus === 'late';
+                          const statusBadge = tenant.status === 'current' 
+                            ? (isLate ? 'Late' : 'Current')
+                            : tenant.status === 'prospect' 
+                            ? 'Prospect'
+                            : 'Past';
+                          
+                          return (
+                            <tr
+                              key={tenant.id}
+                              onClick={(e) => {
+                                // Don't open modal if clicking on action icons
+                                if (e.target.closest('.action-icon')) return;
+                                setSelectedTenant(tenant);
+                              }}
+                              style={{
+                                borderBottom: index < filteredTenants.length - 1 ? '1px solid #e5e7eb' : 'none',
+                                cursor: 'pointer',
+                                transition: 'background-color 0.2s',
+                                background: '#fff'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = '#f9fafb';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = '#fff';
+                              }}
+                            >
+                              {/* Tenant Column */}
+                              <td style={{ padding: '12px 16px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                  <div
+                                    style={{
+                                      width: '40px',
+                                      height: '40px',
+                                      borderRadius: '50%',
+                                      background: getAvatarColorByName(tenant.name),
+                                      color: '#fff',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      fontSize: '14px',
+                                      fontWeight: '500',
+                                      flexShrink: 0
+                                    }}
+                                  >
+                                    {getInitials(tenant.name)}
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: '14px', fontWeight: '400', color: '#202124', marginBottom: '2px' }}>
+                                      {tenant.name}
+                                    </div>
+                                    {tenant.email && (
+                                      <div style={{ fontSize: '12px', color: '#5f6368' }}>
+                                        {tenant.email}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                              
+                              {/* Property Column */}
+                              <td style={{ padding: '12px 16px' }}>
+                                <div>
+                                  {(() => {
+                                    if (!tenant.property) {
+                                      return <div style={{ fontSize: '14px', color: '#202124' }}>N/A</div>;
+                                    }
+                                    
+                                    const unit = extractUnitNumber(tenant.property);
+                                    // Extract property name by removing unit information
+                                    let propertyName = tenant.property;
+                                    const unitPatterns = [
+                                      /\s*Unit\s+[A-Z0-9]+/i,
+                                      /\s*Apt\s+[A-Z0-9]+/i,
+                                      /\s*Apartment\s+[A-Z0-9]+/i,
+                                      /\s*#\s*[A-Z0-9]+/i
+                                    ];
+                                    
+                                    for (const pattern of unitPatterns) {
+                                      propertyName = propertyName.replace(pattern, '').trim();
+                                    }
+                                    
+                                    const hasUnit = unit && unit !== tenant.property && unit !== 'N/A';
+                                    
+                                    return (
+                                      <>
+                                        <div style={{ fontSize: '14px', color: '#202124', marginBottom: hasUnit ? '2px' : '0' }}>
+                                          {propertyName || 'N/A'}
+                                        </div>
+                                        {hasUnit && (
+                                          <div style={{ fontSize: '12px', color: '#5f6368' }}>
+                                            {unit.includes('Unit') || unit.includes('Apt') || unit.includes('#') ? unit : `Unit ${unit}`}
+                                          </div>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
+                                </div>
+                              </td>
+                              
+                              {/* Rent Column */}
+                              <td style={{ padding: '12px 16px' }}>
+                                <div>
+                                  <div style={{ fontSize: '14px', color: '#202124', marginBottom: '2px' }}>
+                                    ${tenant.rentAmount > 0 ? tenant.rentAmount.toLocaleString() : '0'}
+                                  </div>
+                                  {isLate && (
+                                    <div style={{ fontSize: '12px', color: '#ef4444' }}>
+                                      -${tenant.rentAmount.toLocaleString()} due
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                              
+                              {/* Lease End Column */}
+                              <td style={{ padding: '12px 16px' }}>
+                                <div style={{ fontSize: '14px', color: '#202124' }}>
+                                  {formatLeaseEndDate(tenant.leaseEnd, tenant.status)}
+                                </div>
+                              </td>
+                              
+                              {/* Status Column */}
+                              <td style={{ padding: '12px 16px' }}>
+                                <span
+                                  style={{
+                                    fontSize: '12px',
+                                    padding: '4px 12px',
+                                    borderRadius: '12px',
+                                    display: 'inline-block',
+                                    background: statusBadge === 'Current' 
+                                      ? '#dcfce7' 
+                                      : statusBadge === 'Late' 
+                                      ? '#fee2e2' 
+                                      : statusBadge === 'Prospect'
+                                      ? '#fef3c7'
+                                      : '#f3f4f6',
+                                    color: statusBadge === 'Current' 
+                                      ? '#166534' 
+                                      : statusBadge === 'Late' 
+                                      ? '#991b1b' 
+                                      : statusBadge === 'Prospect'
+                                      ? '#92400e'
+                                      : '#4b5563'
+                                  }}
+                                >
+                                  {statusBadge}
+                                </span>
+                              </td>
+                              
+                              {/* Actions Column */}
+                              <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                                <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
+                                  {tenant.email && (
+                                    <a
+                                      href={`mailto:${tenant.email}`}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="action-icon"
+                                      style={{
+                                        color: '#5f6368',
+                                        cursor: 'pointer',
+                                        padding: '4px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        transition: 'color 0.2s'
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.color = '#1a73e8';
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.color = '#5f6368';
+                                      }}
+                                    >
+                                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                                        <polyline points="22,6 12,13 2,6"></polyline>
+                                      </svg>
+                                    </a>
+                                  )}
+                                  {(() => {
+                                    const phoneNumber = tenant.phone ? tenant.phone.trim() : '';
+                                    const hasPhone = phoneNumber && phoneNumber.replace(/\D/g, '').length > 0;
+                                    return hasPhone ? (
+                                      <a
+                                        href={`tel:${phoneNumber.replace(/\D/g, '')}`}
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="action-icon"
+                                        style={{
+                                          color: '#5f6368',
+                                          cursor: 'pointer',
+                                          padding: '4px',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          transition: 'color 0.2s'
+                                        }}
+                                        onMouseEnter={(e) => {
+                                          e.currentTarget.style.color = '#1a73e8';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                          e.currentTarget.style.color = '#5f6368';
+                                        }}
+                                      >
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                          <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                                        </svg>
+                                      </a>
+                                    ) : null;
+                                  })()}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {filteredTenants.length === 0 && (
+                          <tr>
+                            <td colSpan="6" style={{ padding: '40px', textAlign: 'center', color: '#5f6368' }}>
+                              No tenants found
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {activeTab === 'properties' && (
                 <div className="content-section">
