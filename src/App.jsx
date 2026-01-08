@@ -1245,42 +1245,58 @@ function App() {
     return tags.filter(t => tagIds.includes(t.id));
   };
 
-  // TenantBoardCard component for Kanban view
-  const TenantBoardCard = ({ tenant, onClick }) => {
+  // TenantKanbanCard component for improved Kanban view
+  const TenantKanbanCard = ({ tenant, status, onClick }) => {
+    const [isHovered, setIsHovered] = useState(false);
+    
+    // Get property info
     const property = properties.find(p => p.id === tenant.property_id || p.address === tenant.property);
+    
+    // Calculate days late (mock - would come from payment data)
+    const daysLate = status === 'late' ? Math.floor(Math.random() * 30) + 1 : 0;
+    
+    // Get balance
+    const balance = parseFloat(tenant.balance) || 0;
+    
+    // Border color based on status
+    const getBorderColor = () => {
+      if (status === 'late') return '#ef4444';
+      if (status === 'prospect') return '#3b82f6';
+      if (status === 'past') return '#9ca3af';
+      return '#10b981';
+    };
     
     return (
       <div
         onClick={onClick}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
         style={{
           background: 'white',
           borderRadius: 8,
           padding: 12,
           cursor: 'pointer',
-          border: '1px solid #e5e7eb',
-          transition: 'all 0.15s'
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
-          e.currentTarget.style.transform = 'translateY(-1px)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.boxShadow = 'none';
-          e.currentTarget.style.transform = 'translateY(0)';
+          borderLeft: `4px solid ${getBorderColor()}`,
+          boxShadow: isHovered ? '0 4px 12px rgba(0,0,0,0.15)' : '0 1px 3px rgba(0,0,0,0.08)',
+          transform: isHovered ? 'translateY(-2px)' : 'none',
+          transition: 'all 0.2s ease',
+          position: 'relative',
+          marginBottom: isHovered ? 40 : 0
         }}
       >
+        {/* Main Content */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
           <div style={{
-            width: 32,
-            height: 32,
+            width: 36,
+            height: 36,
             borderRadius: 8,
-            background: '#e8f0fe',
-            color: '#1a73e8',
+            background: status === 'late' ? '#fecaca' : status === 'prospect' ? '#dbeafe' : status === 'past' ? '#f3f4f6' : '#d1fae5',
+            color: status === 'late' ? '#dc2626' : status === 'prospect' ? '#2563eb' : status === 'past' ? '#6b7280' : '#059669',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontWeight: 600,
-            fontSize: 12
+            fontSize: 13
           }}>
             {tenant.name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
           </div>
@@ -1288,21 +1304,151 @@ function App() {
             <p style={{ fontWeight: 600, fontSize: 14, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {tenant.name}
             </p>
+            <p style={{ fontSize: 12, color: '#6b7280', margin: '2px 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {tenant.unit ? `Unit ${tenant.unit}` : (property?.name || property?.address || 'Unassigned')}
+            </p>
           </div>
         </div>
         
-        <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 8px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          📍 {property?.name || property?.address?.split(',')[0] || tenant.property || 'Unassigned'}{tenant.unit ? `, ${tenant.unit}` : ''}
-        </p>
-        
+        {/* Stats Row */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>${tenant.rentAmount || tenant.rent || 0}/mo</span>
-          {(tenant.balance > 0 || (tenant.paymentStatus === 'late')) && (
-            <span style={{ fontSize: 12, color: '#dc2626', fontWeight: 500 }}>
-              {tenant.balance > 0 ? `$${tenant.balance} due` : 'Late'}
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#1f2937' }}>
+            ${parseFloat(tenant.rentAmount || tenant.rent || 0).toLocaleString()}/mo
+          </span>
+          
+          {status === 'late' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {balance > 0 && (
+                <span style={{ 
+                  fontSize: 12, 
+                  fontWeight: 600, 
+                  color: '#dc2626',
+                  background: '#fef2f2',
+                  padding: '2px 8px',
+                  borderRadius: 4
+                }}>
+                  ${balance.toLocaleString()} due
+                </span>
+              )}
+            </div>
+          )}
+          
+          {status === 'current' && (tenant.leaseEnd || tenant.lease_end) && (
+            <span style={{ fontSize: 11, color: '#6b7280' }}>
+              Ends {new Date(tenant.leaseEnd || tenant.lease_end).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </span>
+          )}
+          
+          {status === 'prospect' && (
+            <span style={{ 
+              fontSize: 11, 
+              color: '#2563eb',
+              background: '#eff6ff',
+              padding: '2px 8px',
+              borderRadius: 4
+            }}>
+              Lead
             </span>
           )}
         </div>
+        
+        {/* Late Badge */}
+        {status === 'late' && daysLate > 0 && (
+          <div style={{
+            position: 'absolute',
+            top: -6,
+            right: -6,
+            background: '#dc2626',
+            color: 'white',
+            fontSize: 10,
+            fontWeight: 700,
+            padding: '2px 6px',
+            borderRadius: 10,
+            boxShadow: '0 2px 4px rgba(220,38,38,0.4)'
+          }}>
+            {daysLate}d
+          </div>
+        )}
+        
+        {/* Hover Actions */}
+        {isHovered && (
+          <div 
+            style={{
+              position: 'absolute',
+              bottom: -8,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              display: 'flex',
+              gap: 4,
+              background: 'white',
+              padding: '4px 8px',
+              borderRadius: 20,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              zIndex: 10
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={(e) => { e.stopPropagation(); if (tenant.email) window.location.href = `mailto:${tenant.email}`; }}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: '50%',
+                border: 'none',
+                background: '#eff6ff',
+                color: '#2563eb',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 12
+              }}
+              title="Email"
+            >
+              ✉️
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); if (tenant.phone) window.location.href = `tel:${tenant.phone}`; }}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: '50%',
+                border: 'none',
+                background: '#f0fdf4',
+                color: '#059669',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 12
+              }}
+              title="Call"
+            >
+              📞
+            </button>
+            {status === 'late' && (
+              <button
+                onClick={(e) => { e.stopPropagation(); showToast('Payment feature coming soon', 'info'); }}
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: '50%',
+                  border: 'none',
+                  background: '#fef3c7',
+                  color: '#d97706',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 12
+                }}
+                title="Record Payment"
+              >
+                💰
+              </button>
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -7015,96 +7161,161 @@ function App() {
                   
                   {/* BOARD VIEW - Kanban style grouped by status */}
                   {tenantsView === 'board' && (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, alignItems: 'flex-start' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, alignItems: 'flex-start' }}>
+                      
                       {/* Current Column */}
-                      <div style={{ background: '#f9fafb', borderRadius: 12, padding: 16 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
-                          <h3 style={{ fontWeight: 600, fontSize: 14, margin: 0 }}>Current</h3>
-                          <span style={{ marginLeft: 'auto', background: '#d1fae5', color: '#065f46', padding: '2px 8px', borderRadius: 12, fontSize: 12 }}>
-                            {tenants.filter(t => (t.status === 'Current' || t.status === 'current') && t.paymentStatus !== 'late').length}
+                      <div style={{ background: '#f0fdf4', borderRadius: 12, overflow: 'hidden' }}>
+                        <div style={{ 
+                          background: '#10b981', 
+                          padding: '12px 16px', 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center' 
+                        }}>
+                          <span style={{ color: 'white', fontWeight: 600, fontSize: 14 }}>Current</span>
+                          <span style={{ 
+                            background: 'rgba(255,255,255,0.3)', 
+                            color: 'white', 
+                            padding: '2px 10px', 
+                            borderRadius: 12, 
+                            fontSize: 13, 
+                            fontWeight: 600 
+                          }}>
+                            {getFilteredTenants().filter(t => (t.status === 'Current' || t.status === 'current') && t.paymentStatus !== 'late').length}
                           </span>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 'calc(100vh - 320px)', overflowY: 'auto' }}>
                           {getFilteredTenants().filter(t => (t.status === 'Current' || t.status === 'current') && t.paymentStatus !== 'late').map(tenant => (
-                            <TenantBoardCard 
+                            <TenantKanbanCard 
                               key={tenant.id} 
                               tenant={tenant} 
+                              status="current" 
                               onClick={() => {
                                 setSelectedTenant(tenant);
                                 loadFilesForRecord('tenant', tenant.id).then(files => setTenantFiles(files));
                               }} 
                             />
                           ))}
+                          {getFilteredTenants().filter(t => (t.status === 'Current' || t.status === 'current') && t.paymentStatus !== 'late').length === 0 && (
+                            <p style={{ color: '#9ca3af', fontSize: 13, textAlign: 'center', padding: 20 }}>No current tenants</p>
+                          )}
                         </div>
                       </div>
                       
                       {/* Late Column */}
-                      <div style={{ background: '#f9fafb', borderRadius: 12, padding: 16 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444' }} />
-                          <h3 style={{ fontWeight: 600, fontSize: 14, margin: 0 }}>Late</h3>
-                          <span style={{ marginLeft: 'auto', background: '#fee2e2', color: '#991b1b', padding: '2px 8px', borderRadius: 12, fontSize: 12 }}>
-                            {tenants.filter(t => (t.status === 'Current' || t.status === 'current') && t.paymentStatus === 'late').length}
+                      <div style={{ background: '#fef2f2', borderRadius: 12, overflow: 'hidden' }}>
+                        <div style={{ 
+                          background: '#ef4444', 
+                          padding: '12px 16px', 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center' 
+                        }}>
+                          <span style={{ color: 'white', fontWeight: 600, fontSize: 14 }}>Late</span>
+                          <span style={{ 
+                            background: 'rgba(255,255,255,0.3)', 
+                            color: 'white', 
+                            padding: '2px 10px', 
+                            borderRadius: 12, 
+                            fontSize: 13, 
+                            fontWeight: 600 
+                          }}>
+                            {getFilteredTenants().filter(t => (t.status === 'Current' || t.status === 'current') && t.paymentStatus === 'late').length}
                           </span>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 'calc(100vh - 320px)', overflowY: 'auto' }}>
                           {getFilteredTenants().filter(t => (t.status === 'Current' || t.status === 'current') && t.paymentStatus === 'late').map(tenant => (
-                            <TenantBoardCard 
+                            <TenantKanbanCard 
                               key={tenant.id} 
                               tenant={tenant} 
+                              status="late" 
                               onClick={() => {
                                 setSelectedTenant(tenant);
                                 loadFilesForRecord('tenant', tenant.id).then(files => setTenantFiles(files));
                               }} 
                             />
                           ))}
+                          {getFilteredTenants().filter(t => (t.status === 'Current' || t.status === 'current') && t.paymentStatus === 'late').length === 0 && (
+                            <p style={{ color: '#9ca3af', fontSize: 13, textAlign: 'center', padding: 20 }}>No late tenants</p>
+                          )}
                         </div>
                       </div>
                       
-                      {/* Prospect Column */}
-                      <div style={{ background: '#f9fafb', borderRadius: 12, padding: 16 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#8b5cf6' }} />
-                          <h3 style={{ fontWeight: 600, fontSize: 14, margin: 0 }}>Prospects</h3>
-                          <span style={{ marginLeft: 'auto', background: '#ede9fe', color: '#5b21b6', padding: '2px 8px', borderRadius: 12, fontSize: 12 }}>
-                            {tenants.filter(t => t.status === 'Prospect' || t.status === 'prospect').length}
+                      {/* Prospects Column */}
+                      <div style={{ background: '#eff6ff', borderRadius: 12, overflow: 'hidden' }}>
+                        <div style={{ 
+                          background: '#3b82f6', 
+                          padding: '12px 16px', 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center' 
+                        }}>
+                          <span style={{ color: 'white', fontWeight: 600, fontSize: 14 }}>Prospects</span>
+                          <span style={{ 
+                            background: 'rgba(255,255,255,0.3)', 
+                            color: 'white', 
+                            padding: '2px 10px', 
+                            borderRadius: 12, 
+                            fontSize: 13, 
+                            fontWeight: 600 
+                          }}>
+                            {getFilteredTenants().filter(t => t.status === 'Prospect' || t.status === 'prospect').length}
                           </span>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 'calc(100vh - 320px)', overflowY: 'auto' }}>
                           {getFilteredTenants().filter(t => t.status === 'Prospect' || t.status === 'prospect').map(tenant => (
-                            <TenantBoardCard 
+                            <TenantKanbanCard 
                               key={tenant.id} 
                               tenant={tenant} 
+                              status="prospect" 
                               onClick={() => {
                                 setSelectedTenant(tenant);
                                 loadFilesForRecord('tenant', tenant.id).then(files => setTenantFiles(files));
                               }} 
                             />
                           ))}
+                          {getFilteredTenants().filter(t => t.status === 'Prospect' || t.status === 'prospect').length === 0 && (
+                            <p style={{ color: '#9ca3af', fontSize: 13, textAlign: 'center', padding: 20 }}>No prospects</p>
+                          )}
                         </div>
                       </div>
                       
                       {/* Past Column */}
-                      <div style={{ background: '#f9fafb', borderRadius: 12, padding: 16 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#9ca3af' }} />
-                          <h3 style={{ fontWeight: 600, fontSize: 14, margin: 0 }}>Past</h3>
-                          <span style={{ marginLeft: 'auto', background: '#f3f4f6', color: '#4b5563', padding: '2px 8px', borderRadius: 12, fontSize: 12 }}>
-                            {tenants.filter(t => t.status === 'Past' || t.status === 'past').length}
+                      <div style={{ background: '#f9fafb', borderRadius: 12, overflow: 'hidden' }}>
+                        <div style={{ 
+                          background: '#6b7280', 
+                          padding: '12px 16px', 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center' 
+                        }}>
+                          <span style={{ color: 'white', fontWeight: 600, fontSize: 14 }}>Past</span>
+                          <span style={{ 
+                            background: 'rgba(255,255,255,0.3)', 
+                            color: 'white', 
+                            padding: '2px 10px', 
+                            borderRadius: 12, 
+                            fontSize: 13, 
+                            fontWeight: 600 
+                          }}>
+                            {getFilteredTenants().filter(t => t.status === 'Past' || t.status === 'past').length}
                           </span>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 'calc(100vh - 320px)', overflowY: 'auto' }}>
                           {getFilteredTenants().filter(t => t.status === 'Past' || t.status === 'past').map(tenant => (
-                            <TenantBoardCard 
+                            <TenantKanbanCard 
                               key={tenant.id} 
                               tenant={tenant} 
+                              status="past" 
                               onClick={() => {
                                 setSelectedTenant(tenant);
                                 loadFilesForRecord('tenant', tenant.id).then(files => setTenantFiles(files));
                               }} 
                             />
                           ))}
+                          {getFilteredTenants().filter(t => t.status === 'Past' || t.status === 'past').length === 0 && (
+                            <p style={{ color: '#9ca3af', fontSize: 13, textAlign: 'center', padding: 20 }}>No past tenants</p>
+                          )}
                         </div>
                       </div>
                     </div>
