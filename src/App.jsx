@@ -226,6 +226,22 @@ function App() {
   // Toast notifications
   const [toasts, setToasts] = useState([]);
   
+  // Schedule state
+  const [scheduleEvents, setScheduleEvents] = useState([]);
+  const [calendarDate, setCalendarDate] = useState(new Date());
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState(new Date());
+  const [showAddEventModal, setShowAddEventModal] = useState(false);
+  const [showCalendarSync, setShowCalendarSync] = useState(false);
+  const [newEvent, setNewEvent] = useState({
+    title: '',
+    date: new Date().toISOString().split('T')[0],
+    time: '',
+    type: 'general',
+    description: '',
+    property_id: null,
+    tenant_id: null
+  });
+  
   // Onboarding Wizard state
   const [showOnboardingWizard, setShowOnboardingWizard] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(1);
@@ -276,6 +292,24 @@ function App() {
   
   // Settings tab navigation
   const [settingsTab, setSettingsTab] = useState('profile');
+  
+  // Mobile navigation state
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  
+  // Listen for resize
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (!mobile) {
+        setMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    handleResize(); // Check on mount
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   
   // Profile form state
   const [profileData, setProfileData] = useState({
@@ -1931,6 +1965,287 @@ function App() {
     
     if (diffMins < 1) return 'Just now';
     if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+    
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? 's' : ''} ago`;
+    if (diffDays < 365) return `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? 's' : ''} ago`;
+    return `${Math.floor(diffDays / 365)} year${Math.floor(diffDays / 365) > 1 ? 's' : ''} ago`;
+  };
+
+  // EventCard component
+  const EventCard = ({ event, type, compact }) => {
+    const typeColors = {
+      'move-in': { bg: '#d1fae5', text: '#065f46', icon: '📦' },
+      'move-out': { bg: '#fee2e2', text: '#991b1b', icon: '🚚' },
+      'maintenance': { bg: '#fef3c7', text: '#92400e', icon: '🔧' },
+      'inspection': { bg: '#e0f2fe', text: '#0369a1', icon: '🔍' },
+      'vendor': { bg: '#f3e8ff', text: '#6b21a8', icon: '👷' },
+      'lease-expiration': { bg: '#fef3c7', text: '#92400e', icon: '📋' },
+      'general': { bg: '#f3f4f6', text: '#374151', icon: '📅' }
+    };
+    
+    const colors = typeColors[event.type || type] || typeColors.general;
+    
+    if (compact) {
+      return (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 12px',
+          background: colors.bg,
+          borderRadius: 6,
+          marginBottom: 6
+        }}>
+          <span>{colors.icon}</span>
+          <span style={{ fontSize: 13, color: colors.text, fontWeight: 500 }}>{event.title}</span>
+          {event.time && <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 'auto' }}>{event.time}</span>}
+        </div>
+      );
+    }
+    
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 12,
+        background: colors.bg,
+        borderRadius: 8,
+        marginBottom: 8
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 20 }}>{colors.icon}</span>
+          <div>
+            <p style={{ fontWeight: 500, color: colors.text, marginBottom: 2, margin: 0 }}>{event.title}</p>
+            <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
+              {event.description || event.property_name || ''}
+            </p>
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <p style={{ fontWeight: 600, color: colors.text, marginBottom: 2, margin: 0 }}>
+            {new Date(event.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          </p>
+          {event.time && <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>{event.time}</p>}
+        </div>
+      </div>
+    );
+  };
+
+  // Schedule helper functions
+  const getTodayEvents = () => {
+    const today = new Date().toDateString();
+    const events = [];
+    
+    // Get scheduled events
+    scheduleEvents.forEach(e => {
+      if (new Date(e.date).toDateString() === today) {
+        events.push(e);
+      }
+    });
+    
+    // Get move-ins for today
+    tenants.forEach(t => {
+      const moveInDate = t.moveInDate || t.move_in_date;
+      if (moveInDate && new Date(moveInDate).toDateString() === today) {
+        const property = properties.find(p => p.id === t.property_id || p.address === t.property);
+        events.push({
+          title: `${t.name} - Move-In`,
+          type: 'move-in',
+          date: moveInDate,
+          property_name: property?.name || property?.address || t.property,
+          tenant_id: t.id
+        });
+      }
+    });
+    
+    // Get move-outs for today
+    tenants.forEach(t => {
+      const moveOutDate = t.moveOutDate || t.move_out_date;
+      if (moveOutDate && new Date(moveOutDate).toDateString() === today) {
+        const property = properties.find(p => p.id === t.property_id || p.address === t.property);
+        events.push({
+          title: `${t.name} - Move-Out`,
+          type: 'move-out',
+          date: moveOutDate,
+          property_name: property?.name || property?.address || t.property,
+          tenant_id: t.id
+        });
+      }
+    });
+    
+    return events.sort((a, b) => new Date(a.date) - new Date(b.date));
+  };
+
+  const getUpcomingMoveIns = () => {
+    const events = [];
+    tenants.forEach(t => {
+      const moveInDate = t.moveInDate || t.move_in_date;
+      if (moveInDate) {
+        try {
+          const date = new Date(moveInDate);
+          if (date >= new Date()) {
+            const property = properties.find(p => p.id === t.property_id || p.address === t.property);
+            events.push({
+              title: `${t.name} - Move-In`,
+              type: 'move-in',
+              date: moveInDate,
+              property_name: property?.name || property?.address || t.property,
+              tenant_id: t.id
+            });
+          }
+        } catch (e) {
+          // Skip invalid dates
+        }
+      }
+    });
+    return events.sort((a, b) => new Date(a.date) - new Date(b.date)).slice(0, 5);
+  };
+
+  const getUpcomingMoveOuts = () => {
+    const events = [];
+    tenants.forEach(t => {
+      const moveOutDate = t.moveOutDate || t.move_out_date;
+      if (moveOutDate) {
+        try {
+          const date = new Date(moveOutDate);
+          if (date >= new Date()) {
+            const property = properties.find(p => p.id === t.property_id || p.address === t.property);
+            events.push({
+              title: `${t.name} - Move-Out`,
+              type: 'move-out',
+              date: moveOutDate,
+              property_name: property?.name || property?.address || t.property,
+              tenant_id: t.id
+            });
+          }
+        } catch (e) {
+          // Skip invalid dates
+        }
+      }
+    });
+    return events.sort((a, b) => new Date(a.date) - new Date(b.date)).slice(0, 5);
+  };
+
+  const getExpiringLeases = () => {
+    const today = new Date();
+    const in90Days = new Date(today.getTime() + 90 * 24 * 60 * 60 * 1000);
+    
+    return tenants
+      .filter(t => (t.status === 'Current' || t.status === 'current') && (t.leaseEnd || t.lease_end))
+      .filter(t => {
+        try {
+          const leaseEnd = new Date(t.leaseEnd || t.lease_end);
+          return leaseEnd >= today && leaseEnd <= in90Days;
+        } catch {
+          return false;
+        }
+      })
+      .sort((a, b) => {
+        const dateA = new Date(a.leaseEnd || a.lease_end || 0);
+        const dateB = new Date(b.leaseEnd || b.lease_end || 0);
+        return dateA - dateB;
+      });
+  };
+
+  const getAllEventsForDate = (date) => {
+    const dateStr = date.toDateString();
+    const events = [];
+    
+    // Get scheduled events
+    scheduleEvents.forEach(e => {
+      if (new Date(e.date).toDateString() === dateStr) {
+        events.push(e);
+      }
+    });
+    
+    // Get move-ins for this date
+    tenants.forEach(t => {
+      const moveInDate = t.moveInDate || t.move_in_date;
+      if (moveInDate && new Date(moveInDate).toDateString() === dateStr) {
+        const property = properties.find(p => p.id === t.property_id || p.address === t.property);
+        events.push({
+          title: `${t.name} - Move-In`,
+          type: 'move-in',
+          date: moveInDate,
+          property_name: property?.name || property?.address || t.property,
+          tenant_id: t.id
+        });
+      }
+    });
+    
+    // Get move-outs for this date
+    tenants.forEach(t => {
+      const moveOutDate = t.moveOutDate || t.move_out_date;
+      if (moveOutDate && new Date(moveOutDate).toDateString() === dateStr) {
+        const property = properties.find(p => p.id === t.property_id || p.address === t.property);
+        events.push({
+          title: `${t.name} - Move-Out`,
+          type: 'move-out',
+          date: moveOutDate,
+          property_name: property?.name || property?.address || t.property,
+          tenant_id: t.id
+        });
+      }
+    });
+    
+    // Add lease expirations for this date
+    tenants.forEach(t => {
+      const leaseEnd = t.leaseEnd || t.lease_end;
+      if (leaseEnd && new Date(leaseEnd).toDateString() === dateStr) {
+        const property = properties.find(p => p.id === t.property_id || p.address === t.property);
+        events.push({
+          title: `${t.name} - Lease Expires`,
+          type: 'lease-expiration',
+          date: leaseEnd,
+          property_name: property?.name || property?.address || t.property,
+          tenant_id: t.id
+        });
+      }
+    });
+    
+    return events;
+  };
+
+  const generateCalendarDays = (date) => {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    
+    // First day of the month
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    
+    // Day of week for first day (0 = Sunday, 6 = Saturday)
+    const startDay = firstDay.getDay();
+    
+    // Total days in month
+    const daysInMonth = lastDay.getDate();
+    
+    // Previous month's days to fill the grid
+    const prevMonth = new Date(year, month, 0);
+    const daysInPrevMonth = prevMonth.getDate();
+    
+    const days = [];
+    
+    // Add previous month's trailing days
+    for (let i = startDay - 1; i >= 0; i--) {
+      days.push(new Date(year, month - 1, daysInPrevMonth - i));
+    }
+    
+    // Add current month's days
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(new Date(year, month, i));
+    }
+    
+    // Add next month's leading days to fill the grid (42 cells = 6 weeks)
+    const remaining = 42 - days.length;
+    for (let i = 1; i <= remaining; i++) {
+      days.push(new Date(year, month + 1, i));
+    }
+    
+    return days;
     if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
     if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
     return date.toLocaleDateString();
@@ -4555,8 +4870,24 @@ function App() {
     return <Auth onAuthSuccess={handleAuthSuccess} />;
   }
 
+  // Mobile Header Component
+  const MobileHeader = () => (
+    <div className='mobile-header'>
+      <button className='hamburger-btn' onClick={() => setMobileMenuOpen(true)} type="button">
+        ☰
+      </button>
+      <span style={{ fontWeight: 700, fontSize: 18, color: '#1a73e8' }}>Propli</span>
+      <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#1a73e8', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600 }}>
+        {user?.email?.[0]?.toUpperCase() || 'U'}
+      </div>
+    </div>
+  );
+
   return (
     <div className="app google-style">
+      {/* Mobile Header - only show on mobile */}
+      {isMobile && <MobileHeader />}
+      
       {/* Toast Notifications */}
       <div style={{
         position: 'fixed',
@@ -4607,7 +4938,8 @@ function App() {
         ))}
       </div>
 
-      {/* Top Header - Google Workspace Style */}
+      {/* Top Header - Google Workspace Style - hide on mobile */}
+      {!isMobile && (
       <header className="top-header">
         <div className="header-left">
           <a href="#" className="header-logo" onClick={(e) => { e.preventDefault(); setActiveTab('dashboard'); }}>
@@ -4652,111 +4984,71 @@ function App() {
           </div>
         </div>
       </header>
+      )}
 
-      {/* Sidebar Navigation - Google Workspace Style */}
-      <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
-        <nav className="sidebar-nav">
-          <button 
-            className={activeTab === 'dashboard' ? 'active' : ''} 
-            onClick={() => setActiveTab('dashboard')}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="3" y="3" width="7" height="7"></rect>
-              <rect x="14" y="3" width="7" height="7"></rect>
-              <rect x="14" y="14" width="7" height="7"></rect>
-              <rect x="3" y="14" width="7" height="7"></rect>
-            </svg>
-            {!sidebarCollapsed && <span>Dashboard</span>}
-          </button>
-          <button 
-            className={activeTab === 'tenants' ? 'active' : ''} 
-            onClick={() => setActiveTab('tenants')}
-            title="Tenants"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-              <circle cx="9" cy="7" r="4"></circle>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-            </svg>
-            {!sidebarCollapsed && <span>Tenants</span>}
-          </button>
-          <button 
-            className={activeTab === 'properties' ? 'active' : ''} 
-            onClick={() => setActiveTab('properties')}
-            title="Properties"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-              <polyline points="9 22 9 12 15 12 15 22"></polyline>
-            </svg>
-            {!sidebarCollapsed && <span>Properties</span>}
-          </button>
-          <button 
-            className={activeTab === 'owners' ? 'active' : ''} 
-            onClick={() => setActiveTab('owners')}
-            title="Owners"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-              <circle cx="9" cy="7" r="4"></circle>
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-              <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-            </svg>
-            {!sidebarCollapsed && <span>Owners</span>}
-          </button>
-          <button 
-            className={activeTab === 'maintenance' ? 'active' : ''} 
-            onClick={() => setActiveTab('maintenance')}
-            title="Maintenance"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
-            </svg>
-            {!sidebarCollapsed && <span>Maintenance</span>}
-          </button>
-          <button 
-            className={activeTab === 'schedule' ? 'active' : ''} 
-            onClick={() => setActiveTab('schedule')}
-            title="Schedule"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-              <line x1="16" y1="2" x2="16" y2="6"></line>
-              <line x1="8" y1="2" x2="8" y2="6"></line>
-              <line x1="3" y1="10" x2="21" y2="10"></line>
-            </svg>
-            {!sidebarCollapsed && <span>Schedule</span>}
-          </button>
-          <button 
-            className={activeTab === 'reports' ? 'active' : ''} 
-            onClick={() => setActiveTab('reports')}
-            title="Reports"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="20" x2="18" y2="10"></line>
-              <line x1="12" y1="20" x2="12" y2="4"></line>
-              <line x1="6" y1="20" x2="6" y2="14"></line>
-            </svg>
-            {!sidebarCollapsed && <span>Reports</span>}
-          </button>
-          <button 
-            className={activeTab === 'settings' ? 'active' : ''} 
-            onClick={() => setActiveTab('settings')}
-            title="Settings"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="3"></circle>
-              <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"></path>
-            </svg>
-            {!sidebarCollapsed && <span>Settings</span>}
-          </button>
-        </nav>
-      </aside>
+      {/* Mobile Menu */}
+      {mobileMenuOpen && (
+        <>
+          <div className='mobile-overlay' onClick={() => setMobileMenuOpen(false)} />
+          <aside className={`sidebar mobile-open`}>
+            <div style={{ padding: 20, borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, fontSize: 20, color: '#1a73e8' }}>Propli</span>
+              <button 
+                type="button"
+                onClick={() => setMobileMenuOpen(false)} 
+                style={{ background: 'none', border: 'none', fontSize: 24, cursor: 'pointer', color: '#4b5563', padding: 4 }}
+              >
+                ×
+              </button>
+            </div>
+            <nav style={{ padding: 16 }}>
+              {[
+                { id: 'dashboard', icon: '📊', label: 'Dashboard' },
+                { id: 'tenants', icon: '👥', label: 'Tenants' },
+                { id: 'properties', icon: '🏠', label: 'Properties' },
+                { id: 'owners', icon: '👤', label: 'Owners' },
+                { id: 'maintenance', icon: '🔧', label: 'Maintenance' },
+                { id: 'schedule', icon: '📅', label: 'Schedule' },
+                { id: 'reports', icon: '📈', label: 'Reports' },
+                { id: 'settings', icon: '⚙️', label: 'Settings' }
+              ].map(item => (
+                <div
+                  key={item.id}
+                  onClick={() => {
+                    setActiveTab(item.id);
+                    setMobileMenuOpen(false);
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: '14px 16px',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    background: activeTab === item.id ? '#e8f0fe' : 'transparent',
+                    color: activeTab === item.id ? '#1a73e8' : '#4b5563',
+                    fontWeight: activeTab === item.id ? 600 : 400,
+                    marginBottom: 4
+                  }}
+                >
+                  <span style={{ fontSize: 20 }}>{item.icon}</span>
+                  <span>{item.label}</span>
+                </div>
+              ))}
+            </nav>
+          </aside>
+        </>
+      )}
 
       {/* Main Content Area */}
-      <div className="main-content-wrapper">
+      <div className="main-content-wrapper" style={{ marginLeft: isMobile ? 0 : (sidebarCollapsed ? 64 : 220) }}>
         <main className="main-content">
+          {/* Mobile Pull to Refresh Hint */}
+          {isMobile && (
+            <div style={{ textAlign: 'center', padding: 8, fontSize: 12, color: '#9ca3af', marginBottom: 8 }}>
+              Pull down to refresh
+            </div>
+          )}
           {loading ? (
             <div style={{ textAlign: 'center', padding: '2rem' }}>
               <p>Loading data...</p>
@@ -5443,13 +5735,12 @@ function App() {
               {activeTab === 'tenants' && (
                 <div className="content-section">
                   {/* Header */}
-                  <div style={{ marginBottom: '24px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                      <div>
-                        <h1 style={{ fontSize: '32px', fontWeight: '400', color: '#202124', margin: '0 0 8px 0' }}>Tenants</h1>
-                        <p style={{ fontSize: '14px', color: '#5f6368', margin: 0 }}>Manage your tenant directory</p>
-                      </div>
-                      <div style={{ display: 'flex', gap: '12px' }}>
+                  <div style={{ marginBottom: '24px' }} className="page-header">
+                    <div>
+                      <h1 style={{ fontSize: '32px', fontWeight: '400', color: '#202124', margin: '0 0 8px 0' }}>Tenants</h1>
+                      <p style={{ fontSize: '14px', color: '#5f6368', margin: 0 }}>Manage your tenant directory</p>
+                    </div>
+                    <div style={{ display: 'flex', gap: '12px' }} className="page-header-actions">
                         <button 
                           className="btn btn-primary" 
                           onClick={() => setShowAddModal(true)}
@@ -5547,15 +5838,54 @@ function App() {
                         </button>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Search and Filter Bar */}
+                  {/* Mobile Search Bar - Only show on mobile */}
+                  {isMobile && (
+                    <div className="mobile-search" style={{ position: 'relative', marginBottom: '16px' }}>
+                      <input
+                        type="text"
+                        placeholder="Search tenants..."
+                        value={tenantSearchQuery}
+                        onChange={(e) => setTenantSearchQuery(e.target.value)}
+                        aria-label="Search tenants"
+                        style={{
+                          width: '100%',
+                          height: '44px',
+                          padding: '0 16px 0 40px',
+                          border: '1px solid #dadce0',
+                          borderRadius: '8px',
+                          fontSize: '14px',
+                          color: '#202124'
+                        }}
+                      />
+                      <svg 
+                        width="20" 
+                        height="20" 
+                        viewBox="0 0 24 24" 
+                        fill="none" 
+                        stroke="#5f6368" 
+                        strokeWidth="2"
+                        style={{
+                          position: 'absolute',
+                          left: '12px',
+                          top: '12px',
+                          pointerEvents: 'none'
+                        }}
+                      >
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <path d="m21 21-4.35-4.35"></path>
+                      </svg>
+                    </div>
+                  )}
+
+                  {/* Search and Filter Bar - Desktop Only */}
+                  {!isMobile && (
                   <div style={{ 
                     display: 'flex', 
                     gap: '12px', 
                     marginBottom: '24px',
                     alignItems: 'center'
-                  }}>
+                  }} className="filter-row">
                     <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
                       <input
                         type="text"
@@ -5573,6 +5903,177 @@ function App() {
                           color: '#202124'
                         }}
                       />
+                      <svg 
+                        width="20" 
+                        height="20" 
+                        viewBox="0 0 24 24" 
+                        fill="none" 
+                        stroke="#5f6368" 
+                        strokeWidth="2"
+                        style={{
+                          position: 'absolute',
+                          left: '12px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          pointerEvents: 'none'
+                        }}
+                      >
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <path d="m21 21-4.35-4.35"></path>
+                      </svg>
+                    </div>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <select 
+                        value={filterStatus} 
+                        onChange={(e) => setFilterStatus(e.target.value)}
+                        style={{
+                          height: '40px',
+                          padding: '0 40px 0 16px',
+                          border: '1px solid #dadce0',
+                          borderRadius: '4px',
+                          background: '#fff',
+                          color: '#202124',
+                          fontSize: '14px',
+                          cursor: 'pointer',
+                          appearance: 'none',
+                          backgroundImage: `url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 12 12' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2 4L6 8L10 4' stroke='%235f6368' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
+                          backgroundRepeat: 'no-repeat',
+                          backgroundPosition: 'right 12px center',
+                          paddingRight: '40px'
+                        }}
+                      >
+                        <option value="all">All Tenants</option>
+                        <option value="current">Current</option>
+                        <option value="prospect">Prospects</option>
+                        <option value="past">Past</option>
+                        <option value="late">Late Payments</option>
+                        {expiringLeases.length > 0 && <option value="expiring">Expiring Leases</option>}
+                      </select>
+                    </div>
+                    {/* Tag Filter */}
+                    {tags.length > 0 && (
+                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            onClick={() => {
+                              const dropdown = document.getElementById('tag-filter-dropdown');
+                              if (dropdown) {
+                                dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+                              }
+                            }}
+                            style={{
+                              height: '40px',
+                              padding: '0 16px',
+                              border: '1px solid #dadce0',
+                              borderRadius: '4px',
+                              background: '#fff',
+                              color: '#202124',
+                              fontSize: '14px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px'
+                            }}
+                          >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+                            </svg>
+                            Tags {selectedTagFilters.length > 0 && `(${selectedTagFilters.length})`}
+                          </button>
+                          <div
+                            id="tag-filter-dropdown"
+                            style={{
+                              display: 'none',
+                              position: 'absolute',
+                              top: '100%',
+                              right: 0,
+                              marginTop: '4px',
+                              background: '#fff',
+                              border: '1px solid #dadce0',
+                              borderRadius: '8px',
+                              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                              padding: '8px',
+                              minWidth: '200px',
+                              maxHeight: '300px',
+                              overflowY: 'auto',
+                              zIndex: 1000
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {tags.map(tag => (
+                              <div
+                                key={tag.id}
+                                onClick={() => {
+                                  if (selectedTagFilters.includes(tag.id)) {
+                                    setSelectedTagFilters(selectedTagFilters.filter(id => id !== tag.id));
+                                  } else {
+                                    setSelectedTagFilters([...selectedTagFilters, tag.id]);
+                                  }
+                                }}
+                                style={{
+                                  padding: '8px 12px',
+                                  cursor: 'pointer',
+                                  borderRadius: '4px',
+                                  background: selectedTagFilters.includes(tag.id) ? '#e8f0fe' : 'transparent',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  marginBottom: '4px'
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (!selectedTagFilters.includes(tag.id)) {
+                                    e.currentTarget.style.background = '#f9fafb';
+                                  }
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (!selectedTagFilters.includes(tag.id)) {
+                                    e.currentTarget.style.background = 'transparent';
+                                  }
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedTagFilters.includes(tag.id)}
+                                  onChange={() => {}}
+                                  style={{ margin: 0 }}
+                                />
+                                <span className={`tag-pill ${tag.color}`} style={{ fontSize: '12px' }}>
+                                  {tag.name}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  )}
+
+                  {/* Search and Filter Bar - Desktop Only */}
+                  {!isMobile && (
+                  <div style={{ 
+                    display: 'flex', 
+                    gap: '12px', 
+                    marginBottom: '24px',
+                    alignItems: 'center'
+                  }} className="filter-row">
+                    <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
+                        <input
+                          type="text"
+                          placeholder="Search tenants..."
+                          value={tenantSearchQuery}
+                          onChange={(e) => setTenantSearchQuery(e.target.value)}
+                          aria-label="Search tenants"
+                          style={{
+                            width: '100%',
+                            height: '40px',
+                            padding: '0 16px 0 40px',
+                            border: '1px solid #dadce0',
+                            borderRadius: '4px',
+                            fontSize: '14px',
+                            color: '#202124'
+                          }}
+                        />
                       <svg 
                         width="20" 
                         height="20" 
@@ -5811,15 +6312,110 @@ function App() {
                       Export
                     </button>
                   </div>
+                  )}
 
-                  {/* Table */}
-                  <div style={{
-                    background: '#fff',
-                    border: '1px solid #dadce0',
-                    borderRadius: '8px',
-                    overflow: 'hidden'
-                  }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  {/* Mobile Card View */}
+                  {isMobile ? (
+                    <div className='mobile-cards'>
+                      {filteredTenants.map(tenant => {
+                        const property = properties.find(p => p.id === tenant.property_id || p.address === tenant.property);
+                        const isLate = tenant.status === 'current' && tenant.paymentStatus === 'late';
+                        const statusBadge = tenant.status === 'current' 
+                          ? (isLate ? 'Late' : 'Current')
+                          : tenant.status === 'prospect' 
+                          ? 'Prospect'
+                          : 'Past';
+                        
+                        return (
+                          <div
+                            key={tenant.id}
+                            className='mobile-card'
+                            onClick={() => {
+                              setSelectedTenant(tenant);
+                              loadFilesForRecord('tenant', tenant.id).then(files => {
+                                setTenantFiles(files);
+                              });
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                              <div style={{
+                                width: 48,
+                                height: 48,
+                                borderRadius: '50%',
+                                background: getAvatarColorByName(tenant.name),
+                                color: 'white',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontWeight: 600,
+                                fontSize: 16
+                              }}>
+                                {getInitials(tenant.name)}
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <p style={{ fontWeight: 600, marginBottom: 2, margin: 0, fontSize: 16 }}>{tenant.name}</p>
+                                <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>{tenant.email || ''}</p>
+                              </div>
+                              <span style={{
+                                padding: '4px 10px',
+                                borderRadius: 12,
+                                fontSize: 12,
+                                fontWeight: 500,
+                                background: statusBadge === 'Current' ? '#d1fae5' : 
+                                          statusBadge === 'Late' ? '#fee2e2' : 
+                                          statusBadge === 'Prospect' ? '#dbeafe' : '#f3f4f6',
+                                color: statusBadge === 'Current' ? '#065f46' : 
+                                      statusBadge === 'Late' ? '#991b1b' : 
+                                      statusBadge === 'Prospect' ? '#1e40af' : '#6b7280'
+                              }}>
+                                {statusBadge}
+                              </span>
+                            </div>
+                            
+                            <div style={{ fontSize: 14, color: '#4b5563', marginBottom: 12 }}>
+                              <p style={{ margin: '4px 0' }}>
+                                📍 {property?.name || property?.address || tenant.property || 'Unassigned'}{tenant.unit ? `, Unit ${tenant.unit}` : ''}
+                              </p>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
+                                <span>💰 ${tenant.rentAmount || tenant.rent || 0}/mo</span>
+                                <span>📅 {tenant.leaseEnd ? new Date(tenant.leaseEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'MTM'}</span>
+                              </div>
+                            </div>
+                            
+                            <div style={{ display: 'flex', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid #e5e7eb' }}>
+                              <a 
+                                href={`mailto:${tenant.email}`} 
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ flex: 1, textAlign: 'center', padding: 10, background: '#f3f4f6', borderRadius: 8, textDecoration: 'none', color: '#4b5563', fontSize: 14, fontWeight: 500 }}
+                              >
+                                ✉️ Email
+                              </a>
+                              <a 
+                                href={`tel:${tenant.phone}`} 
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ flex: 1, textAlign: 'center', padding: 10, background: '#f3f4f6', borderRadius: 8, textDecoration: 'none', color: '#4b5563', fontSize: 14, fontWeight: 500 }}
+                              >
+                                📞 Call
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {filteredTenants.length === 0 && (
+                        <div style={{ textAlign: 'center', padding: '40px', color: '#5f6368' }}>
+                          No tenants found
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* Desktop Table View */
+                    <div style={{
+                      background: '#fff',
+                      border: '1px solid #dadce0',
+                      borderRadius: '8px',
+                      overflow: 'hidden'
+                    }}>
+                      <table className="tenant-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{ background: '#f8f9fa', borderBottom: '1px solid #dadce0' }}>
                           <th style={{ 
@@ -6148,6 +6744,7 @@ function App() {
                       </tbody>
                     </table>
                   </div>
+                  )}
                 </div>
               )}
 
@@ -7919,6 +8516,375 @@ function App() {
                 );
               })()}
 
+              {/* Schedule Tab */}
+              {activeTab === 'schedule' && (
+                <div style={{ padding: 24 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+                    <div>
+                      <h1 style={{ fontSize: 32, fontWeight: 700, marginBottom: 4 }}>Schedule</h1>
+                      <p style={{ color: '#6b7280', margin: 0 }}>View and manage upcoming events, move-ins, and move-outs</p>
+                    </div>
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      <button className='btn btn-secondary' onClick={() => setShowCalendarSync(true)}>
+                        🔗 Connect Calendar
+                      </button>
+                      <button className='btn btn-primary' onClick={() => setShowAddEventModal(true)}>
+                        + Add Event
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* Main content - two columns */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 24 }}>
+                    
+                    {/* Left Column - Event Lists */}
+                    <div>
+                      {/* Today's Events */}
+                      <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', padding: 20, marginBottom: 20 }}>
+                        <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }}></span>
+                          Today - {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                        </h3>
+                        {getTodayEvents().length > 0 ? (
+                          getTodayEvents().map((event, i) => (
+                            <EventCard key={i} event={event} />
+                          ))
+                        ) : (
+                          <p style={{ color: '#9ca3af', fontSize: 14, margin: 0 }}>No events scheduled for today</p>
+                        )}
+                      </div>
+                      
+                      {/* Upcoming Move-Ins */}
+                      <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', padding: 20, marginBottom: 20 }}>
+                        <h3 style={{ fontSize: 14, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 16 }}>
+                          Upcoming Move-Ins
+                        </h3>
+                        {getUpcomingMoveIns().length > 0 ? (
+                          getUpcomingMoveIns().map((event, i) => (
+                            <EventCard key={i} event={event} type='move-in' />
+                          ))
+                        ) : (
+                          <p style={{ color: '#9ca3af', fontSize: 14, margin: 0 }}>No upcoming move-ins</p>
+                        )}
+                      </div>
+                      
+                      {/* Upcoming Move-Outs */}
+                      <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', padding: 20, marginBottom: 20 }}>
+                        <h3 style={{ fontSize: 14, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 16 }}>
+                          Upcoming Move-Outs
+                        </h3>
+                        {getUpcomingMoveOuts().length > 0 ? (
+                          getUpcomingMoveOuts().map((event, i) => (
+                            <EventCard key={i} event={event} type='move-out' />
+                          ))
+                        ) : (
+                          <p style={{ color: '#9ca3af', fontSize: 14, margin: 0 }}>No upcoming move-outs</p>
+                        )}
+                      </div>
+                      
+                      {/* Lease Expirations */}
+                      <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', padding: 20, marginBottom: 20 }}>
+                        <h3 style={{ fontSize: 14, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 16 }}>
+                          Lease Expirations (Next 90 Days)
+                        </h3>
+                        {getExpiringLeases().length > 0 ? (
+                          getExpiringLeases().map((tenant, i) => {
+                            const leaseEnd = tenant.leaseEnd || tenant.lease_end;
+                            const daysUntil = Math.ceil((new Date(leaseEnd) - new Date()) / (1000 * 60 * 60 * 24));
+                            const property = properties.find(p => p.id === tenant.property_id || p.address === tenant.property);
+                            return (
+                              <div 
+                                key={i} 
+                                onClick={() => {
+                                  setSelectedTenant(tenant);
+                                  setActiveTab('tenants');
+                                }}
+                                style={{ 
+                                  display: 'flex', 
+                                  justifyContent: 'space-between', 
+                                  alignItems: 'center',
+                                  padding: 12,
+                                  background: daysUntil <= 30 ? '#fef2f2' : '#fffbeb',
+                                  borderRadius: 8,
+                                  marginBottom: 8,
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = daysUntil <= 30 ? '#fee2e2' : '#fef3c7';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = daysUntil <= 30 ? '#fef2f2' : '#fffbeb';
+                                }}
+                              >
+                                <div>
+                                  <p style={{ fontWeight: 500, color: daysUntil <= 30 ? '#dc2626' : '#b45309', marginBottom: 2, margin: 0 }}>
+                                    {tenant.name} - Lease Expires
+                                  </p>
+                                  <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
+                                    {property?.name || property?.address || tenant.property || 'Unknown'}, Unit {tenant.unit || 'N/A'}
+                                  </p>
+                                </div>
+                                <span style={{ 
+                                  fontWeight: 600, 
+                                  color: daysUntil <= 30 ? '#dc2626' : '#b45309',
+                                  fontSize: 14
+                                }}>
+                                  {daysUntil} days
+                                </span>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <p style={{ color: '#9ca3af', fontSize: 14, margin: 0 }}>No lease expirations in the next 90 days</p>
+                        )}
+                      </div>
+                      
+                      {/* Maintenance Appointments */}
+                      <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', padding: 20 }}>
+                        <h3 style={{ fontSize: 14, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 16 }}>
+                          Scheduled Maintenance
+                        </h3>
+                        {scheduleEvents.filter(e => e.type === 'maintenance' && new Date(e.date) >= new Date()).length > 0 ? (
+                          scheduleEvents
+                            .filter(e => e.type === 'maintenance' && new Date(e.date) >= new Date())
+                            .slice(0, 5)
+                            .map((event, i) => <EventCard key={i} event={event} type='maintenance' />)
+                        ) : (
+                          <p style={{ color: '#9ca3af', fontSize: 14, margin: 0 }}>No scheduled maintenance</p>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Right Column - Calendar Widget */}
+                    <div>
+                      {/* Mini Calendar */}
+                      <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', padding: 20, marginBottom: 20 }}>
+                        {/* Calendar Header */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const newDate = new Date(calendarDate);
+                              newDate.setMonth(newDate.getMonth() - 1);
+                              setCalendarDate(newDate);
+                            }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#6b7280', padding: 4 }}
+                          >
+                            ‹
+                          </button>
+                          <h3 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>
+                            {calendarDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                          </h3>
+                          <button 
+                            type="button"
+                            onClick={() => {
+                              const newDate = new Date(calendarDate);
+                              newDate.setMonth(newDate.getMonth() + 1);
+                              setCalendarDate(newDate);
+                            }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#6b7280', padding: 4 }}
+                          >
+                            ›
+                          </button>
+                        </div>
+                        
+                        {/* Day Headers */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', textAlign: 'center', marginBottom: 8 }}>
+                          {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
+                            <div key={day} style={{ fontSize: 12, fontWeight: 600, color: '#9ca3af', padding: 4 }}>
+                              {day}
+                            </div>
+                          ))}
+                        </div>
+                        
+                        {/* Calendar Grid */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+                          {generateCalendarDays(calendarDate).map((day, i) => {
+                            const isToday = day?.toDateString() === new Date().toDateString();
+                            const isSelected = day?.toDateString() === selectedCalendarDate?.toDateString();
+                            const dayEvents = day ? getAllEventsForDate(day) : [];
+                            const hasEvents = dayEvents.length > 0;
+                            
+                            return (
+                              <div
+                                key={i}
+                                onClick={() => day && setSelectedCalendarDate(day)}
+                                style={{
+                                  aspectRatio: '1',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  borderRadius: 8,
+                                  cursor: day ? 'pointer' : 'default',
+                                  background: isSelected ? '#1a73e8' : isToday ? '#e8f0fe' : 'transparent',
+                                  color: isSelected ? 'white' : !day ? '#d1d5db' : '#1f2937',
+                                  fontWeight: isToday || isSelected ? 600 : 400,
+                                  fontSize: 14,
+                                  position: 'relative'
+                                }}
+                              >
+                                {day?.getDate()}
+                                {hasEvents && (
+                                  <div style={{
+                                    position: 'absolute',
+                                    bottom: 4,
+                                    display: 'flex',
+                                    gap: 2
+                                  }}>
+                                    {dayEvents.slice(0, 3).map((e, j) => (
+                                      <div key={j} style={{
+                                        width: 4,
+                                        height: 4,
+                                        borderRadius: '50%',
+                                        background: e.type === 'move-in' ? '#10b981' : 
+                                                   e.type === 'move-out' ? '#ef4444' :
+                                                   e.type === 'maintenance' ? '#f59e0b' : 
+                                                   e.type === 'lease-expiration' ? '#f59e0b' : '#6b7280'
+                                      }} />
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        
+                        {/* Legend */}
+                        <div style={{ display: 'flex', gap: 16, marginTop: 16, flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+                            <span>Move-In</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444' }} />
+                            <span>Move-Out</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b' }} />
+                            <span>Maintenance</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#6b7280' }} />
+                            <span>Other</span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Selected Day Events */}
+                      {selectedCalendarDate && (
+                        <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', padding: 20, marginBottom: 20 }}>
+                          <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
+                            {selectedCalendarDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                          </h4>
+                          {getAllEventsForDate(selectedCalendarDate).length > 0 ? (
+                            getAllEventsForDate(selectedCalendarDate).map((event, i) => (
+                              <EventCard key={i} event={event} compact />
+                            ))
+                          ) : (
+                            <p style={{ color: '#9ca3af', fontSize: 14, margin: 0 }}>No events on this day</p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewEvent({ ...newEvent, date: selectedCalendarDate.toISOString().split('T')[0] });
+                              setShowAddEventModal(true);
+                            }}
+                            className='btn btn-text'
+                            style={{ marginTop: 8, fontSize: 13 }}
+                          >
+                            + Add event for this day
+                          </button>
+                        </div>
+                      )}
+                      
+                      {/* Calendar Integrations */}
+                      <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', padding: 20 }}>
+                        <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Calendar Sync</h4>
+                        <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16, margin: '0 0 16px' }}>
+                          Connect your calendar to sync events automatically
+                        </p>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <button 
+                            type="button"
+                            onClick={() => showToast('Google Calendar integration coming soon', 'info')}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              padding: '12px 16px',
+                              background: '#f9fafb',
+                              border: '1px solid #e5e7eb',
+                              borderRadius: 8,
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                              width: '100%'
+                            }}
+                          >
+                            <span style={{ fontSize: 24 }}>📅</span>
+                            <div style={{ flex: 1 }}>
+                              <p style={{ margin: 0, fontWeight: 500, fontSize: 14 }}>Google Calendar</p>
+                              <p style={{ margin: 0, fontSize: 12, color: '#6b7280' }}>Sync with Gmail</p>
+                            </div>
+                            <span style={{ fontSize: 12, color: '#9ca3af' }}>Connect</span>
+                          </button>
+                          
+                          <button 
+                            type="button"
+                            onClick={() => showToast('Outlook integration coming soon', 'info')}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              padding: '12px 16px',
+                              background: '#f9fafb',
+                              border: '1px solid #e5e7eb',
+                              borderRadius: 8,
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                              width: '100%'
+                            }}
+                          >
+                            <span style={{ fontSize: 24 }}>📆</span>
+                            <div style={{ flex: 1 }}>
+                              <p style={{ margin: 0, fontWeight: 500, fontSize: 14 }}>Outlook Calendar</p>
+                              <p style={{ margin: 0, fontSize: 12, color: '#6b7280' }}>Sync with Microsoft 365</p>
+                            </div>
+                            <span style={{ fontSize: 12, color: '#9ca3af' }}>Connect</span>
+                          </button>
+                          
+                          <button 
+                            type="button"
+                            onClick={() => showToast('iCal export coming soon', 'info')}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              padding: '12px 16px',
+                              background: '#f9fafb',
+                              border: '1px solid #e5e7eb',
+                              borderRadius: 8,
+                              cursor: 'pointer',
+                              textAlign: 'left',
+                              width: '100%'
+                            }}
+                          >
+                            <span style={{ fontSize: 24 }}>📅</span>
+                            <div style={{ flex: 1 }}>
+                              <p style={{ margin: 0, fontWeight: 500, fontSize: 14 }}>Export iCal Feed</p>
+                              <p style={{ margin: 0, fontSize: 12, color: '#6b7280' }}>Subscribe in any calendar app</p>
+                            </div>
+                            <span style={{ fontSize: 12, color: '#9ca3af' }}>Export</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {activeTab === 'settings' && (
                 <div className="content-section">
                   {/* Header */}
@@ -7934,7 +8900,7 @@ function App() {
                     borderBottom: '1px solid #dadce0',
                     marginBottom: '32px'
                   }}>
-                    {['profile', 'notifications', 'security', 'billing', 'company', 'tags'].map((tab) => (
+                    {['profile', 'notifications', 'security', 'billing', 'company', 'tags', 'integrations'].map((tab) => (
                       <button
                         key={tab}
                         onClick={() => setSettingsTab(tab)}
@@ -9127,6 +10093,270 @@ function App() {
                         </div>
                       </>
                     )}
+
+                    {/* Integrations Tab */}
+                    {settingsTab === 'integrations' && (
+                      <>
+                        <div style={{
+                          background: '#fff',
+                          border: '1px solid #dadce0',
+                          borderRadius: '12px',
+                          padding: '24px',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                          marginBottom: '20px'
+                        }}>
+                          <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 8 }}>Integrations</h2>
+                          <p style={{ color: '#6b7280', marginBottom: 24, margin: '0 0 24px' }}>Connect Propli with your favorite apps</p>
+                          
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+                            {/* Accounting */}
+                            <div
+                              style={{
+                                padding: 20,
+                                background: 'white',
+                                borderRadius: 12,
+                                border: '1px solid #e5e7eb',
+                                cursor: 'default'
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+                                <span style={{ fontSize: 32 }}>💰</span>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                    <h4 style={{ fontWeight: 600, margin: 0 }}>QuickBooks</h4>
+                                    <span style={{ fontSize: 11, padding: '2px 8px', background: '#f3f4f6', color: '#6b7280', borderRadius: 12 }}>
+                                      Coming Soon
+                                    </span>
+                                  </div>
+                                  <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>Sync income, expenses, and invoices</p>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div
+                              style={{
+                                padding: 20,
+                                background: 'white',
+                                borderRadius: 12,
+                                border: '1px solid #e5e7eb',
+                                cursor: 'default'
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+                                <span style={{ fontSize: 32 }}>📊</span>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                    <h4 style={{ fontWeight: 600, margin: 0 }}>Xero</h4>
+                                    <span style={{ fontSize: 11, padding: '2px 8px', background: '#f3f4f6', color: '#6b7280', borderRadius: 12 }}>
+                                      Coming Soon
+                                    </span>
+                                  </div>
+                                  <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>Accounting and bookkeeping</p>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Communication */}
+                            <div
+                              style={{
+                                padding: 20,
+                                background: 'white',
+                                borderRadius: 12,
+                                border: '1px solid #e5e7eb',
+                                cursor: 'default'
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+                                <span style={{ fontSize: 32 }}>📧</span>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                    <h4 style={{ fontWeight: 600, margin: 0 }}>Gmail</h4>
+                                    <span style={{ fontSize: 11, padding: '2px 8px', background: '#f3f4f6', color: '#6b7280', borderRadius: 12 }}>
+                                      Coming Soon
+                                    </span>
+                                  </div>
+                                  <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>Send emails directly from Propli</p>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div
+                              onClick={() => setShowTwilioSetup && setShowTwilioSetup(true)}
+                              style={{
+                                padding: 20,
+                                background: 'white',
+                                borderRadius: 12,
+                                border: '1px solid #e5e7eb',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.borderColor = '#1a73e8';
+                                e.currentTarget.style.boxShadow = '0 2px 8px rgba(26, 115, 232, 0.1)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.borderColor = '#e5e7eb';
+                                e.currentTarget.style.boxShadow = 'none';
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+                                <span style={{ fontSize: 32 }}>📱</span>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                    <h4 style={{ fontWeight: 600, margin: 0 }}>Twilio SMS</h4>
+                                    <span style={{ fontSize: 11, padding: '2px 8px', background: '#f3f4f6', color: '#6b7280', borderRadius: 12 }}>
+                                      Available
+                                    </span>
+                                  </div>
+                                  <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>Two-way text messaging with tenants</p>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Calendar */}
+                            <div
+                              style={{
+                                padding: 20,
+                                background: 'white',
+                                borderRadius: 12,
+                                border: '1px solid #e5e7eb',
+                                cursor: 'default'
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+                                <span style={{ fontSize: 32 }}>📅</span>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                    <h4 style={{ fontWeight: 600, margin: 0 }}>Google Calendar</h4>
+                                    <span style={{ fontSize: 11, padding: '2px 8px', background: '#f3f4f6', color: '#6b7280', borderRadius: 12 }}>
+                                      Coming Soon
+                                    </span>
+                                  </div>
+                                  <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>Sync events and appointments</p>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div
+                              style={{
+                                padding: 20,
+                                background: 'white',
+                                borderRadius: 12,
+                                border: '1px solid #e5e7eb',
+                                cursor: 'default'
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+                                <span style={{ fontSize: 32 }}>📆</span>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                    <h4 style={{ fontWeight: 600, margin: 0 }}>Outlook Calendar</h4>
+                                    <span style={{ fontSize: 11, padding: '2px 8px', background: '#f3f4f6', color: '#6b7280', borderRadius: 12 }}>
+                                      Coming Soon
+                                    </span>
+                                  </div>
+                                  <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>Sync with Microsoft 365</p>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Payments */}
+                            <div
+                              style={{
+                                padding: 20,
+                                background: 'white',
+                                borderRadius: 12,
+                                border: '1px solid #e5e7eb',
+                                cursor: 'default'
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+                                <span style={{ fontSize: 32 }}>💳</span>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                    <h4 style={{ fontWeight: 600, margin: 0 }}>Stripe</h4>
+                                    <span style={{ fontSize: 11, padding: '2px 8px', background: '#f3f4f6', color: '#6b7280', borderRadius: 12 }}>
+                                      Coming Soon
+                                    </span>
+                                  </div>
+                                  <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>Accept online rent payments</p>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div
+                              style={{
+                                padding: 20,
+                                background: 'white',
+                                borderRadius: 12,
+                                border: '1px solid #e5e7eb',
+                                cursor: 'default'
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+                                <span style={{ fontSize: 32 }}>🏦</span>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                    <h4 style={{ fontWeight: 600, margin: 0 }}>Plaid</h4>
+                                    <span style={{ fontSize: 11, padding: '2px 8px', background: '#f3f4f6', color: '#6b7280', borderRadius: 12 }}>
+                                      Coming Soon
+                                    </span>
+                                  </div>
+                                  <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>Bank account verification</p>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {/* Automation */}
+                            <div
+                              style={{
+                                padding: 20,
+                                background: 'white',
+                                borderRadius: 12,
+                                border: '1px solid #e5e7eb',
+                                cursor: 'default'
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+                                <span style={{ fontSize: 32 }}>⚡</span>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                    <h4 style={{ fontWeight: 600, margin: 0 }}>Zapier</h4>
+                                    <span style={{ fontSize: 11, padding: '2px 8px', background: '#f3f4f6', color: '#6b7280', borderRadius: 12 }}>
+                                      Coming Soon
+                                    </span>
+                                  </div>
+                                  <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>Connect 5,000+ apps</p>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div
+                              style={{
+                                padding: 20,
+                                background: 'white',
+                                borderRadius: 12,
+                                border: '1px solid #e5e7eb',
+                                cursor: 'default'
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+                                <span style={{ fontSize: 32 }}>🔄</span>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                    <h4 style={{ fontWeight: 600, margin: 0 }}>Webhooks</h4>
+                                    <span style={{ fontSize: 11, padding: '2px 8px', background: '#f3f4f6', color: '#6b7280', borderRadius: 12 }}>
+                                      Coming Soon
+                                    </span>
+                                  </div>
+                                  <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>Custom API integrations</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -9402,8 +10632,6 @@ function App() {
               )}
             </>
           )}
-        </main>
-      </div>
 
       {(showAddModal || editingTenant) && (
         <div className="modal-overlay" onClick={() => {
@@ -13458,6 +14686,8 @@ function App() {
           </div>
         </div>
       )}
+      </main>
+      </div>
     </div>
   );
 }
