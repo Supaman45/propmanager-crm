@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import './App.css';
 import { supabase } from './supabase';
 import Auth from './Auth';
@@ -187,6 +187,11 @@ function App() {
   const [maintenanceSearchQuery, setMaintenanceSearchQuery] = useState('');
   const [maintenanceFilterTab, setMaintenanceFilterTab] = useState('all');
   const [showCompleted, setShowCompleted] = useState(false);
+  const [smsMessages, setSmsMessages] = useState([]);
+  const [selectedConversation, setSelectedConversation] = useState(null);
+  const [newMessage, setNewMessage] = useState('');
+  const [messagesRefreshing, setMessagesRefreshing] = useState(false);
+  const [maintenanceRefreshing, setMaintenanceRefreshing] = useState(false);
   const [confirmPaymentChange, setConfirmPaymentChange] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [showPaymentLog, setShowPaymentLog] = useState(null);
@@ -206,6 +211,9 @@ function App() {
   const [showAddMaintenanceModal, setShowAddMaintenanceModal] = useState(false);
   const [newMaintenanceRequest, setNewMaintenanceRequest] = useState({ tenantId: '', tenantName: '', property: '', issue: '', priority: 'medium', description: '', date: new Date().toISOString().split('T')[0] });
   const [selectedMaintenanceRequest, setSelectedMaintenanceRequest] = useState(null);
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [showVendorInput, setShowVendorInput] = useState(false);
+  const [vendorName, setVendorName] = useState('');
   const [reportMonth, setReportMonth] = useState(new Date().toISOString().slice(0, 7));
   const [propertySortField, setPropertySortField] = useState(null);
   const [propertySortDirection, setPropertySortDirection] = useState('asc');
@@ -1250,127 +1258,165 @@ function App() {
   const MaintenanceCard = ({ request, onClick }) => {
     const [isHovered, setIsHovered] = useState(false);
     
-    const priority = (request.priority || 'medium').toLowerCase();
+    const priority = (request.priority || 'medium').toUpperCase();
     const status = (request.status || 'open').toLowerCase();
     const statusDisplay = getMaintenanceStatusDisplay(request.status);
     const unit = extractUnitNumber(request.property);
     const propertyName = request.property ? request.property.replace(/\s*(?:Unit|Apt|Apartment|#)\s*[A-Z0-9]+/i, '').trim() : request.property;
-    
-    // Get priority border color
-    const getPriorityBorderColor = () => {
-      if (priority === 'urgent') return '#dc2626';
-      if (priority === 'high') return '#f97316';
-      if (priority === 'medium') return '#eab308';
-      return '#6b7280'; // low
-    };
-    
-    // Get priority badge background color
-    const getPriorityBadgeColor = () => {
-      if (priority === 'urgent') return { bg: '#fee2e2', color: '#991b1b' };
-      if (priority === 'high') return { bg: '#fed7aa', color: '#9a3412' };
-      if (priority === 'medium') return { bg: '#fef9c3', color: '#854d0e' };
-      return { bg: '#f3f4f6', color: '#4b5563' }; // low
-    };
-    
-    // Get status badge color
-    const getStatusBadgeColor = () => {
-      if (status === 'closed' || status === 'completed') return { bg: '#d1fae5', color: '#065f46' };
-      if (status === 'in_progress' || status === 'in progress') return { bg: '#dbeafe', color: '#1e40af' };
-      return { bg: '#fff7ed', color: '#9a3412' }; // open/pending
-    };
-    
-    const priorityBadge = getPriorityBadgeColor();
-    const statusBadge = getStatusBadgeColor();
     const isCompleted = status === 'closed' || status === 'completed';
+    const isActive = status === 'in_progress' || status === 'in progress';
+    
+    // Get status badge colors
+    const getStatusBadgeStyle = () => {
+      if (isCompleted) return { background: '#ECFDF5', color: '#059669' };
+      if (isActive) return { background: '#EFF6FF', color: '#2563EB' };
+      return { background: '#FEF3C7', color: '#D97706' };
+    };
+    
+    // Get priority dot color
+    const getPriorityDotColor = () => {
+      if (priority === 'URGENT') return '#EF4444';
+      if (priority === 'HIGH') return '#F97316';
+      if (priority === 'MEDIUM') return '#EAB308';
+      return '#6B7280';
+    };
+    
+    // Get priority badge style
+    const getPriorityBadgeStyle = () => {
+      if (priority === 'URGENT') return { background: '#FEE2E2', color: '#DC2626' };
+      if (priority === 'HIGH') return { background: '#FFEDD5', color: '#EA580C' };
+      if (priority === 'MEDIUM') return { background: '#FEF9C3', color: '#CA8A04' };
+      return { background: '#F3F4F6', color: '#6B7280' };
+    };
+    
+    const statusBadge = getStatusBadgeStyle();
+    const priorityDot = getPriorityDotColor();
+    const priorityBadge = getPriorityBadgeStyle();
+    
+    // Get created date
+    const createdDate = request.date || request.created_at;
     
     return (
-      <div
+      <div 
         onClick={onClick}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
         style={{
           background: 'white',
-          borderRadius: 8,
-          padding: 16,
+          borderRadius: 12,
+          padding: 20,
           cursor: 'pointer',
-          borderLeft: `4px solid ${isCompleted ? '#d1d5db' : getPriorityBorderColor()}`,
-          boxShadow: isHovered ? '0 4px 12px rgba(0,0,0,0.15)' : '0 1px 3px rgba(0,0,0,0.08)',
-          transform: isHovered ? 'translateY(-2px)' : 'none',
           transition: 'all 0.2s ease',
+          border: '1px solid #f0f0f0',
           position: 'relative',
+          overflow: 'hidden',
           opacity: isCompleted ? 0.6 : 1
         }}
+        onMouseEnter={(e) => {
+          setIsHovered(true);
+          e.currentTarget.style.transform = 'translateY(-2px)';
+          e.currentTarget.style.boxShadow = '0 8px 24px rgba(0,0,0,0.08)';
+        }}
+        onMouseLeave={(e) => {
+          setIsHovered(false);
+          e.currentTarget.style.transform = 'translateY(0)';
+          e.currentTarget.style.boxShadow = 'none';
+        }}
       >
-        {/* Header: Title and Status Badge */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-          <h3 style={{ 
-            fontWeight: 600, 
-            fontSize: 16, 
-            margin: 0, 
-            flex: 1, 
-            paddingRight: 12,
-            color: isCompleted ? '#6b7280' : '#111827',
-            textDecoration: isCompleted ? 'line-through' : 'none',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8
-          }}>
-            {isCompleted && <span style={{ fontSize: 14 }}>✓</span>}
-            {request.issue}
-          </h3>
-          <span style={{
-            padding: '4px 10px',
-            borderRadius: 12,
-            fontSize: 12,
-            fontWeight: 500,
-            background: statusBadge.bg,
-            color: statusBadge.color,
-            whiteSpace: 'nowrap'
-          }}>
-            {statusDisplay}
-          </span>
+        {/* Status badge - top right */}
+        <div style={{
+          position: 'absolute',
+          top: 16,
+          right: 16,
+          padding: '4px 10px',
+          borderRadius: 20,
+          fontSize: 11,
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: '0.5px',
+          background: statusBadge.background,
+          color: statusBadge.color
+        }}>
+          {statusDisplay}
         </div>
-        
-        {/* Priority Badge */}
-        <div style={{ marginBottom: 12 }}>
+
+        {/* Priority indicator - small dot */}
+        <div style={{
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          background: priorityDot,
+          marginBottom: 12
+        }} />
+
+        {/* Issue title */}
+        <h3 style={{
+          fontSize: 15,
+          fontWeight: 600,
+          color: isCompleted ? '#6b7280' : '#111827',
+          marginBottom: 12,
+          paddingRight: 80,
+          lineHeight: 1.4,
+          textDecoration: isCompleted ? 'line-through' : 'none'
+        }}>
+          {request.issue}
+        </h3>
+
+        {/* Meta info with icons */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#6B7280' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+              <polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+            <span>{propertyName && unit ? `${propertyName} - ${unit}` : propertyName || unit || 'No property'}</span>
+          </div>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#6B7280' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+            <span>{request.tenantName || request.tenant_name || 'Unknown tenant'}</span>
+          </div>
+        </div>
+
+        {/* Footer with date and priority label */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginTop: 16,
+          paddingTop: 12,
+          borderTop: '1px solid #F3F4F6'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, color: '#9CA3AF' }}>
+              {createdDate ? new Date(createdDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'N/A'}
+            </span>
+            {request.source === 'sms' && (
+              <span style={{
+                fontSize: 10,
+                padding: '2px 6px',
+                borderRadius: 4,
+                background: '#E0E7FF',
+                color: '#4F46E5',
+                fontWeight: 500
+              }} title="Received via SMS">
+                💬 SMS
+              </span>
+            )}
+          </div>
           <span style={{
-            padding: '4px 10px',
-            borderRadius: 6,
             fontSize: 11,
-            fontWeight: 600,
-            background: priorityBadge.bg,
-            color: priorityBadge.color,
-            textTransform: 'uppercase'
+            fontWeight: 500,
+            padding: '2px 8px',
+            borderRadius: 4,
+            background: priorityBadge.background,
+            color: priorityBadge.color
           }}>
             {priority}
           </span>
         </div>
-        
-        {/* Property and Unit */}
-        <div style={{ fontSize: 14, color: '#4b5563', marginBottom: 8 }}>
-          {propertyName && unit ? (
-            <span>{propertyName} - {unit}</span>
-          ) : propertyName ? (
-            <span>{propertyName}</span>
-          ) : unit ? (
-            <span>Unit {unit}</span>
-          ) : (
-            <span style={{ fontStyle: 'italic', color: '#9ca3af' }}>No Property</span>
-          )}
-        </div>
-        
-        {/* Tenant Name */}
-        {request.tenantName && (
-          <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>
-            Tenant: {request.tenantName}
-          </div>
-        )}
-        
-        {/* Created Date */}
-        <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: isHovered ? 12 : 0 }}>
-          Created {request.date ? new Date(request.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
-        </div>
-        
+
         {/* Hover Actions */}
         {isHovered && (
           <div 
@@ -1379,7 +1425,8 @@ function App() {
               justifyContent: 'center',
               gap: 8,
               paddingTop: 12,
-              borderTop: '1px solid #e5e7eb'
+              marginTop: 12,
+              borderTop: '1px solid #F3F4F6'
             }}
             onClick={(e) => e.stopPropagation()}
             onMouseEnter={(e) => e.stopPropagation()}
@@ -1953,6 +2000,221 @@ function App() {
     }
   }, [activeTab, user]);
 
+  // Load SMS messages when Messages tab is opened
+  useEffect(() => {
+    if (activeTab === 'messages' && user) {
+      loadSmsMessages();
+    }
+  }, [activeTab, user]);
+
+  // Load SMS messages (internal function without toast)
+  const loadSmsMessages = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('sms_messages')
+        .select(`
+          *,
+          tenant:tenants(id, name, phone)
+        `)
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        console.error('Error loading SMS messages:', error);
+        throw error;
+      } else {
+        setSmsMessages(data || []);
+      }
+    } catch (error) {
+      console.error('Error loading SMS messages:', error);
+      throw error;
+    }
+  };
+
+  // Messages refresh handler
+  const handleMessagesRefresh = async () => {
+    setMessagesRefreshing(true);
+    try {
+      await loadSmsMessages();
+      showToast('Messages refreshed', 'success');
+    } catch (error) {
+      showToast('Error loading messages', 'error');
+    } finally {
+      setMessagesRefreshing(false);
+    }
+  };
+
+  // Load maintenance requests (internal function without toast)
+  const loadMaintenanceRequests = async () => {
+    try {
+      const { data: maintenanceData, error: maintenanceError } = await supabase
+        .from('maintenance_requests')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (maintenanceError) {
+        console.error('Error loading maintenance requests:', maintenanceError);
+        throw maintenanceError;
+      } else {
+        setMaintenanceRequests((maintenanceData || []).map(transformMaintenanceRequest));
+      }
+    } catch (error) {
+      console.error('Error loading maintenance requests:', error);
+      throw error;
+    }
+  };
+
+  // Maintenance refresh handler
+  const handleMaintenanceRefresh = async () => {
+    setMaintenanceRefreshing(true);
+    try {
+      await loadMaintenanceRequests();
+      showToast('Maintenance requests refreshed', 'success');
+    } catch (error) {
+      showToast('Error loading maintenance requests', 'error');
+    } finally {
+      setMaintenanceRefreshing(false);
+    }
+  };
+
+  // Map display status to database status
+  const mapStatusToDB = (displayStatus) => {
+    const statusMap = {
+      'Pending': 'open',
+      'In Progress': 'in_progress',
+      'Active': 'in_progress',
+      'Completed': 'closed'
+    };
+    return statusMap[displayStatus] || displayStatus.toLowerCase().replace(' ', '_');
+  };
+
+  // Update maintenance status
+  const updateMaintenanceStatus = async (maintenanceId, newStatus) => {
+    try {
+      // Map display status to database status
+      const dbStatus = mapStatusToDB(newStatus);
+
+      const { error } = await supabase
+        .from('maintenance_requests')
+        .update({ status: dbStatus })
+        .eq('id', maintenanceId);
+
+      if (error) {
+        console.error('Error updating maintenance status:', error);
+        showToast('Error updating status', 'error');
+        throw error;
+      }
+
+      // Refresh the maintenance requests list
+      await loadMaintenanceRequests();
+      
+      // Update the selected maintenance request if it's the same one
+      if (selectedMaintenanceRequest && selectedMaintenanceRequest.id === maintenanceId) {
+        const { data: updatedRequest } = await supabase
+          .from('maintenance_requests')
+          .select('*')
+          .eq('id', maintenanceId)
+          .single();
+        
+        if (updatedRequest) {
+          setSelectedMaintenanceRequest(transformMaintenanceRequest(updatedRequest));
+        }
+      }
+
+      showToast('Status updated successfully', 'success');
+      setShowStatusDropdown(false);
+    } catch (error) {
+      console.error('Error updating maintenance status:', error);
+      showToast('Error updating status', 'error');
+    }
+  };
+
+  // Group messages by phone number for conversation view
+  const conversations = useMemo(() => {
+    const grouped = {};
+    smsMessages.forEach(msg => {
+      const key = msg.phone_number;
+      if (!grouped[key]) {
+        grouped[key] = {
+          phone: key,
+          tenant: msg.tenant,
+          messages: [],
+          lastMessage: null,
+          unreadCount: 0
+        };
+      }
+      grouped[key].messages.push(msg);
+      
+      // Track last message and unread count
+      if (!grouped[key].lastMessage || new Date(msg.created_at) > new Date(grouped[key].lastMessage.created_at)) {
+        grouped[key].lastMessage = msg;
+      }
+      
+      // Count unread inbound messages (you can add a 'read' field to track this)
+      if (msg.direction === 'inbound') {
+        grouped[key].unreadCount++;
+      }
+    });
+    
+    // Sort conversations by last message time
+    return Object.values(grouped).sort((a, b) => {
+      const dateA = new Date(a.lastMessage?.created_at || 0);
+      const dateB = new Date(b.lastMessage?.created_at || 0);
+      return dateB - dateA;
+    });
+  }, [smsMessages]);
+
+  // Send SMS function
+  const sendSms = async (to, message) => {
+    if (!message || !message.trim()) {
+      showToast('Please enter a message', 'error');
+      return;
+    }
+
+    try {
+      // Get Twilio settings
+      const { data: settings } = await supabase
+        .from('sms_settings')
+        .select('*')
+        .single();
+
+      if (!settings || !settings.account_sid || !settings.auth_token || !settings.phone_number) {
+        showToast('Twilio settings not configured', 'error');
+        return;
+      }
+
+      const selectedConv = conversations.find(c => c.phone === to);
+      const tenantId = selectedConv?.tenant?.id;
+
+      // Call send-sms function
+      const { data, error } = await supabase.functions.invoke('send-sms', {
+        body: {
+          to,
+          message: message.trim(),
+          accountSid: settings.account_sid,
+          authToken: settings.auth_token,
+          fromNumber: settings.phone_number,
+          tenantId: tenantId,
+          userId: user?.id
+        }
+      });
+
+      if (error) {
+        console.error('Error sending SMS:', error);
+        showToast('Error sending message', 'error');
+      } else if (data && data.success) {
+        // Reload messages (the edge function saves the outbound message)
+        await loadSmsMessages();
+        setNewMessage('');
+        showToast('Message sent', 'success');
+      } else {
+        showToast(data?.error || 'Error sending message', 'error');
+      }
+    } catch (error) {
+      console.error('Error sending SMS:', error);
+      showToast('Error sending message', 'error');
+    }
+  };
+
   // Apply dark mode class to body element
   useEffect(() => {
     if (darkMode) {
@@ -1968,6 +2230,47 @@ function App() {
   useEffect(() => {
     localStorage.setItem('propli_activeTab', activeTab);
   }, [activeTab]);
+
+  // Keyboard shortcut handler for refresh (R key)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Only trigger if not typing in an input/textarea
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      // Check if R key is pressed (without Ctrl/Cmd)
+      if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey) {
+        // Handle refresh based on active tab
+        if (activeTab === 'messages') {
+          e.preventDefault();
+          handleMessagesRefresh();
+        } else if (activeTab === 'maintenance') {
+          e.preventDefault();
+          handleMaintenanceRefresh();
+        }
+      }
+    };
+
+    // Close dropdowns when clicking outside
+    const handleClickOutside = (e) => {
+      if (showStatusDropdown || showVendorInput) {
+        // Check if click is outside the dropdown/input
+        const target = e.target;
+        if (!target.closest('.slide-panel-footer')) {
+          setShowStatusDropdown(false);
+          setShowVendorInput(false);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('click', handleClickOutside);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('click', handleClickOutside);
+    };
+  }, [activeTab, handleMessagesRefresh, handleMaintenanceRefresh, showStatusDropdown, showVendorInput]);
 
   // Load tags when tenant modal opens
   useEffect(() => {
@@ -4861,21 +5164,62 @@ function App() {
     e.preventDefault();
     if (!newMaintenanceRequest.issue) return;
     
-    const { data, error } = await supabase
-      .from('maintenance_requests')
-      .insert([transformMaintenanceRequestForDB(newMaintenanceRequest)])
-      .select()
-      .single();
-    
-    if (error) {
-      console.error('Error adding maintenance request:', error);
-      alert('Error adding maintenance request');
-      return;
+    try {
+      let data, error;
+      
+      if (newMaintenanceRequest.id) {
+        // Update existing request
+        const { data: updatedData, error: updateError } = await supabase
+          .from('maintenance_requests')
+          .update(transformMaintenanceRequestForDB(newMaintenanceRequest))
+          .eq('id', newMaintenanceRequest.id)
+          .select()
+          .single();
+        
+        data = updatedData;
+        error = updateError;
+        
+        if (!error) {
+          // Update in local state
+          const updatedRequests = maintenanceRequests.map(req => 
+            req.id === newMaintenanceRequest.id ? transformMaintenanceRequest(data) : req
+          );
+          setMaintenanceRequests(updatedRequests);
+          
+          // Update selected request if it's the one being edited
+          if (selectedMaintenanceRequest && selectedMaintenanceRequest.id === newMaintenanceRequest.id) {
+            setSelectedMaintenanceRequest(transformMaintenanceRequest(data));
+          }
+        }
+      } else {
+        // Insert new request
+        const { data: insertedData, error: insertError } = await supabase
+          .from('maintenance_requests')
+          .insert([transformMaintenanceRequestForDB(newMaintenanceRequest)])
+          .select()
+          .single();
+        
+        data = insertedData;
+        error = insertError;
+        
+        if (!error) {
+          setMaintenanceRequests([transformMaintenanceRequest(data), ...maintenanceRequests]);
+        }
+      }
+      
+      if (error) {
+        console.error('Error saving maintenance request:', error);
+        showToast('Error saving maintenance request', 'error');
+        return;
+      }
+      
+      setNewMaintenanceRequest({ tenantId: '', tenantName: '', property: '', issue: '', priority: 'medium', description: '', date: new Date().toISOString().split('T')[0] });
+      setShowAddMaintenanceModal(false);
+      showToast(newMaintenanceRequest.id ? 'Maintenance request updated' : 'Maintenance request added', 'success');
+    } catch (error) {
+      console.error('Error saving maintenance request:', error);
+      showToast('Error saving maintenance request', 'error');
     }
-    
-    setMaintenanceRequests([transformMaintenanceRequest(data), ...maintenanceRequests]);
-    setNewMaintenanceRequest({ tenantId: '', tenantName: '', property: '', issue: '', priority: 'medium', description: '', date: new Date().toISOString().split('T')[0] });
-    setShowAddMaintenanceModal(false);
   };
 
   const handleAddTenant = async (e) => {
@@ -6475,6 +6819,26 @@ function App() {
             >
               <span style={{ fontSize: 20 }}>🔧</span>
               {!sidebarCollapsed && <span>Maintenance</span>}
+            </div>
+            
+            <div
+              onClick={() => setActiveTab('messages')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 16px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                background: activeTab === 'messages' ? '#e8f0fe' : 'transparent',
+                color: activeTab === 'messages' ? '#1a73e8' : '#4b5563',
+                fontWeight: activeTab === 'messages' ? 600 : 400,
+                marginBottom: 4,
+                transition: 'background 0.2s'
+              }}
+            >
+              <span style={{ fontSize: 20 }}>💬</span>
+              {!sidebarCollapsed && <span>Messages</span>}
             </div>
             
             <div
@@ -8569,17 +8933,62 @@ function App() {
                         <h1 style={{ fontSize: '32px', fontWeight: '600', color: '#202124', margin: '0 0 8px 0' }}>Maintenance</h1>
                         <p style={{ fontSize: '14px', color: '#6b7280', margin: 0 }}>Track and manage maintenance requests</p>
                       </div>
-                      <button 
-                        className="btn btn-primary" 
-                        onClick={() => setShowAddMaintenanceModal(true)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px'
-                        }}
-                      >
-                        + New Request
-                      </button>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <button 
+                          onClick={handleMaintenanceRefresh}
+                          disabled={maintenanceRefreshing}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            padding: 8,
+                            cursor: maintenanceRefreshing ? 'not-allowed' : 'pointer',
+                            borderRadius: 8,
+                            display: 'flex',
+                            alignItems: 'center',
+                            color: maintenanceRefreshing ? '#9ca3af' : '#6b7280',
+                            transition: 'all 0.2s',
+                            opacity: maintenanceRefreshing ? 0.6 : 1
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!maintenanceRefreshing) {
+                              e.currentTarget.style.background = '#f3f4f6';
+                              e.currentTarget.style.color = '#374151';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!maintenanceRefreshing) {
+                              e.currentTarget.style.background = 'transparent';
+                              e.currentTarget.style.color = '#6b7280';
+                            }
+                          }}
+                          title='Refresh'
+                        >
+                          <svg 
+                            width='20' 
+                            height='20' 
+                            viewBox='0 0 24 24' 
+                            fill='none' 
+                            stroke='currentColor' 
+                            strokeWidth='2'
+                            style={{
+                              animation: maintenanceRefreshing ? 'spin 1s linear infinite' : 'none'
+                            }}
+                          >
+                            <path d='M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15'/>
+                          </svg>
+                        </button>
+                        <button 
+                          className="btn btn-primary" 
+                          onClick={() => setShowAddMaintenanceModal(true)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                          }}
+                        >
+                          + New Request
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -8861,8 +9270,8 @@ function App() {
                       <>
                         <div style={{ 
                           display: 'grid', 
-                          gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(350px, 1fr))', 
-                          gap: 20 
+                          gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(320px, 1fr))', 
+                          gap: 16 
                         }}>
                           {activeRequests.map(request => (
                             <MaintenanceCard 
@@ -9699,6 +10108,366 @@ function App() {
                   </div>
                 );
               })()}
+
+              {/* Messages Tab */}
+              {activeTab === 'messages' && (
+                <div className="content-section" style={{ padding: 0, height: 'calc(100vh - 60px)', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    height: '100%', 
+                    borderTop: '1px solid #e5e7eb',
+                    overflow: 'hidden'
+                  }}>
+                    {/* Left Panel - Conversation List */}
+                    <div style={{
+                      width: isMobile ? '100%' : '350px',
+                      borderRight: isMobile ? 'none' : '1px solid #e5e7eb',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      background: '#f9fafb'
+                    }}>
+                      {/* Header */}
+                      <div style={{
+                        padding: '20px',
+                        borderBottom: '1px solid #e5e7eb',
+                        background: 'white'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                          <div>
+                            <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>Messages</h1>
+                            <p style={{ color: '#6b7280', margin: '4px 0 0' }}>{conversations.length} conversations</p>
+                          </div>
+                          <button 
+                            onClick={handleMessagesRefresh}
+                            disabled={messagesRefreshing}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              padding: 8,
+                              cursor: messagesRefreshing ? 'not-allowed' : 'pointer',
+                              borderRadius: 8,
+                              display: 'flex',
+                              alignItems: 'center',
+                              color: messagesRefreshing ? '#9ca3af' : '#6b7280',
+                              transition: 'all 0.2s',
+                              opacity: messagesRefreshing ? 0.6 : 1
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!messagesRefreshing) {
+                                e.currentTarget.style.background = '#f3f4f6';
+                                e.currentTarget.style.color = '#374151';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!messagesRefreshing) {
+                                e.currentTarget.style.background = 'transparent';
+                                e.currentTarget.style.color = '#6b7280';
+                              }
+                            }}
+                            title='Refresh'
+                          >
+                            <svg 
+                              width='20' 
+                              height='20' 
+                              viewBox='0 0 24 24' 
+                              fill='none' 
+                              stroke='currentColor' 
+                              strokeWidth='2'
+                              style={{
+                                animation: messagesRefreshing ? 'spin 1s linear infinite' : 'none'
+                              }}
+                            >
+                              <path d='M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15'/>
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Conversation List */}
+                      <div style={{
+                        flex: 1,
+                        overflowY: 'auto',
+                        background: 'white'
+                      }}>
+                        {conversations.length === 0 ? (
+                          <div style={{
+                            padding: '40px 20px',
+                            textAlign: 'center',
+                            color: '#9ca3af'
+                          }}>
+                            <div style={{ fontSize: 48, marginBottom: 16 }}>💬</div>
+                            <p>No messages yet</p>
+                            <p style={{ fontSize: 12, marginTop: 8 }}>SMS conversations will appear here</p>
+                          </div>
+                        ) : (
+                          conversations.map(conv => {
+                            const isSelected = selectedConversation?.phone === conv.phone;
+                            return (
+                              <div
+                                key={conv.phone}
+                                onClick={() => {
+                                  setSelectedConversation(conv);
+                                }}
+                                style={{
+                                  padding: '16px',
+                                  borderBottom: '1px solid #f3f4f6',
+                                  cursor: 'pointer',
+                                  background: isSelected ? '#e8f0fe' : 'white',
+                                  transition: 'background 0.2s',
+                                  display: 'flex',
+                                  alignItems: 'flex-start',
+                                  gap: 12
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (!isSelected) e.currentTarget.style.background = '#f9fafb';
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (!isSelected) e.currentTarget.style.background = 'white';
+                                }}
+                              >
+                                <div style={{
+                                  width: 48,
+                                  height: 48,
+                                  borderRadius: '50%',
+                                  background: '#e8f0fe',
+                                  color: '#1a73e8',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: 20,
+                                  fontWeight: 600,
+                                  flexShrink: 0
+                                }}>
+                                  {conv.tenant?.name ? conv.tenant.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : '👤'}
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                                    <h3 style={{
+                                      fontSize: 15,
+                                      fontWeight: 600,
+                                      margin: 0,
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      flex: 1
+                                    }}>
+                                      {conv.tenant?.name || conv.phone}
+                                    </h3>
+                                    {conv.lastMessage && (
+                                      <span style={{
+                                        fontSize: 12,
+                                        color: '#9ca3af',
+                                        whiteSpace: 'nowrap',
+                                        marginLeft: 8
+                                      }}>
+                                        {new Date(conv.lastMessage.created_at).toLocaleDateString('en-US', {
+                                          month: 'short',
+                                          day: 'numeric',
+                                          ...(new Date(conv.lastMessage.created_at).toDateString() !== new Date().toDateString() ? {} : {
+                                            hour: 'numeric',
+                                            minute: '2-digit'
+                                          })
+                                        })}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {conv.lastMessage && (
+                                    <p style={{
+                                      fontSize: 13,
+                                      color: '#6b7280',
+                                      margin: 0,
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis'
+                                    }}>
+                                      {conv.lastMessage.message}
+                                    </p>
+                                  )}
+                                  {conv.unreadCount > 0 && (
+                                    <div style={{
+                                      display: 'inline-block',
+                                      marginTop: 4,
+                                      padding: '2px 6px',
+                                      borderRadius: 10,
+                                      background: '#1a73e8',
+                                      color: 'white',
+                                      fontSize: 11,
+                                      fontWeight: 600
+                                    }}>
+                                      {conv.unreadCount}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right Panel - Conversation Thread */}
+                    {!isMobile && (
+                      <div style={{
+                        flex: 1,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        background: 'white'
+                      }}>
+                        {selectedConversation ? (
+                          <>
+                            {/* Conversation Header */}
+                            <div style={{
+                              padding: '20px',
+                              borderBottom: '1px solid #e5e7eb',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center'
+                            }}>
+                              <div>
+                                <h2 style={{ fontSize: '20px', fontWeight: 600, margin: 0, marginBottom: 4 }}>
+                                  {selectedConversation.tenant?.name || selectedConversation.phone}
+                                </h2>
+                                <p style={{ fontSize: '14px', color: '#6b7280', margin: 0 }}>
+                                  {selectedConversation.tenant?.phone || selectedConversation.phone}
+                                </p>
+                              </div>
+                              {selectedConversation.tenant && (
+                                <button
+                                  onClick={() => {
+                                    // Create maintenance request from conversation
+                                    setShowAddMaintenanceModal(true);
+                                    setNewMaintenanceRequest({
+                                      tenantId: selectedConversation.tenant.id,
+                                      tenantName: selectedConversation.tenant.name,
+                                      issue: 'Maintenance Request',
+                                      description: selectedConversation.messages
+                                        .filter(m => m.direction === 'inbound')
+                                        .map(m => m.message)
+                                        .join('\n\n'),
+                                      status: 'open',
+                                      priority: 'medium'
+                                    });
+                                  }}
+                                  className="btn btn-secondary"
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 6
+                                  }}
+                                >
+                                  🔧 Create Request
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Messages */}
+                            <div style={{
+                              flex: 1,
+                              overflowY: 'auto',
+                              padding: '20px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 12
+                            }}>
+                              {[...selectedConversation.messages]
+                                .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+                                .map(msg => {
+                                  const isOutbound = msg.direction === 'outbound';
+                                  return (
+                                    <div
+                                      key={msg.id}
+                                      style={{
+                                        display: 'flex',
+                                        justifyContent: isOutbound ? 'flex-end' : 'flex-start',
+                                        width: '100%'
+                                      }}
+                                    >
+                                      <div style={{
+                                        maxWidth: '70%',
+                                        padding: '12px 16px',
+                                        borderRadius: 18,
+                                        background: isOutbound ? '#1a73e8' : '#f3f4f6',
+                                        color: isOutbound ? 'white' : '#111827',
+                                        fontSize: 14,
+                                        lineHeight: 1.5,
+                                        wordWrap: 'break-word'
+                                      }}>
+                                        <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{msg.message}</p>
+                                        <span style={{
+                                          fontSize: 11,
+                                          opacity: 0.7,
+                                          marginTop: 4,
+                                          display: 'block'
+                                        }}>
+                                          {new Date(msg.created_at).toLocaleTimeString('en-US', {
+                                            hour: 'numeric',
+                                            minute: '2-digit'
+                                          })}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                            </div>
+
+                            {/* Message Input */}
+                            <div style={{
+                              padding: '16px 20px',
+                              borderTop: '1px solid #e5e7eb',
+                              display: 'flex',
+                              gap: 8
+                            }}>
+                              <input
+                                type="text"
+                                value={newMessage}
+                                onChange={(e) => setNewMessage(e.target.value)}
+                                onKeyPress={(e) => {
+                                  if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    sendSms(selectedConversation.phone, newMessage);
+                                  }
+                                }}
+                                placeholder="Type a message..."
+                                style={{
+                                  flex: 1,
+                                  padding: '12px 16px',
+                                  border: '1px solid #e5e7eb',
+                                  borderRadius: 20,
+                                  fontSize: 14,
+                                  outline: 'none'
+                                }}
+                              />
+                              <button
+                                onClick={() => sendSms(selectedConversation.phone, newMessage)}
+                                className="btn btn-primary"
+                                style={{
+                                  padding: '12px 24px',
+                                  borderRadius: 20
+                                }}
+                              >
+                                Send
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{
+                            flex: 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#9ca3af'
+                          }}>
+                            <div style={{ textAlign: 'center' }}>
+                              <div style={{ fontSize: 64, marginBottom: 16 }}>💬</div>
+                              <p>Select a conversation to start messaging</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Schedule Tab */}
               {activeTab === 'schedule' && (
@@ -14041,13 +14810,11 @@ function App() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button className="btn-text" onClick={(e) => {
-                  e.stopPropagation();
-                  // TODO: Open edit modal
-                }}>
-                  Edit
-                </button>
-                <button className="close-btn" onClick={() => setSelectedMaintenanceRequest(null)}>×</button>
+                <button className="close-btn" onClick={() => {
+                  setSelectedMaintenanceRequest(null);
+                  setShowStatusDropdown(false);
+                  setShowVendorInput(false);
+                }}>×</button>
               </div>
             </div>
             <div className="slide-panel-body">
@@ -14060,15 +14827,12 @@ function App() {
               <div style={{ height: '1px', background: '#e5e7eb', marginBottom: '24px' }}></div>
 
               {/* TENANT */}
-              {selectedMaintenanceRequest.tenantName && (
-                <>
-                  <div style={{ marginBottom: '24px' }}>
-                    <span className="section-label">TENANT</span>
-                    <div className="section-value">{selectedMaintenanceRequest.tenantName}</div>
-                  </div>
-                  <div style={{ height: '1px', background: '#e5e7eb', marginBottom: '24px' }}></div>
-                </>
-              )}
+              <div style={{ marginBottom: '24px' }}>
+                <span className="section-label">TENANT</span>
+                <div className="section-value">{selectedMaintenanceRequest.tenantName || 'Not specified'}</div>
+              </div>
+
+              <div style={{ height: '1px', background: '#e5e7eb', marginBottom: '24px' }}></div>
 
               {/* CREATED */}
               <div style={{ marginBottom: '24px' }}>
@@ -14116,23 +14880,157 @@ function App() {
               </div>
 
             </div>
-            <div className="slide-panel-footer">
-              <button className="btn btn-secondary" onClick={(e) => {
-                e.stopPropagation();
-                // TODO: Update status
-              }}>
-                Update Status
-              </button>
-              <button className="btn btn-secondary" onClick={(e) => {
-                e.stopPropagation();
-                // TODO: Assign vendor
-              }}>
-                Assign Vendor
-              </button>
-              <button className="btn btn-primary" onClick={(e) => {
-                e.stopPropagation();
-                // TODO: Edit
-              }}>
+            <div className="slide-panel-footer" style={{ position: 'relative' }}>
+              <div style={{ position: 'relative' }}>
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowStatusDropdown(!showStatusDropdown);
+                    setShowVendorInput(false);
+                  }}
+                >
+                  Update Status
+                </button>
+                {showStatusDropdown && (
+                  <div 
+                    style={{ 
+                      position: 'absolute', 
+                      bottom: '100%', 
+                      left: 0, 
+                      background: 'white', 
+                      border: '1px solid #e5e7eb', 
+                      borderRadius: 8, 
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)', 
+                      padding: 8, 
+                      marginBottom: 4,
+                      zIndex: 1000,
+                      minWidth: '150px'
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {['Pending', 'In Progress', 'Completed'].map(status => (
+                      <button 
+                        key={status}
+                        onClick={() => { 
+                          updateMaintenanceStatus(selectedMaintenanceRequest.id, status); 
+                          setShowStatusDropdown(false); 
+                        }}
+                        style={{ 
+                          display: 'block', 
+                          width: '100%', 
+                          padding: '8px 16px', 
+                          textAlign: 'left', 
+                          border: 'none', 
+                          background: 'none', 
+                          cursor: 'pointer',
+                          borderRadius: 4,
+                          fontSize: 14,
+                          color: '#111827'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = '#f3f4f6'}
+                        onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                      >
+                        {status}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div style={{ position: 'relative' }}>
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowStatusDropdown(false);
+                    setShowVendorInput(!showVendorInput);
+                  }}
+                >
+                  Assign Vendor
+                </button>
+                {showVendorInput && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '100%',
+                    left: 0,
+                    right: 0,
+                    background: 'white',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 8,
+                    padding: 16,
+                    marginBottom: 8,
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                    zIndex: 1000
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="text"
+                      placeholder="Enter vendor name..."
+                      value={vendorName}
+                      onChange={(e) => setVendorName(e.target.value)}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter' && vendorName.trim()) {
+                          showToast('Vendor Directory coming soon - Vendor: ' + vendorName, 'info');
+                          setVendorName('');
+                          setShowVendorInput(false);
+                        }
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: 4,
+                        fontSize: 14,
+                        outline: 'none'
+                      }}
+                      autoFocus
+                    />
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <button 
+                        className="btn btn-primary"
+                        onClick={() => {
+                          if (vendorName.trim()) {
+                            showToast('Vendor Directory coming soon - Vendor: ' + vendorName, 'info');
+                            setVendorName('');
+                          }
+                          setShowVendorInput(false);
+                        }}
+                      >
+                        Assign
+                      </button>
+                      <button 
+                        className="btn btn-secondary"
+                        onClick={() => {
+                          setVendorName('');
+                          setShowVendorInput(false);
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <button 
+                className="btn btn-primary" 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowStatusDropdown(false);
+                  setShowVendorInput(false);
+                  setNewMaintenanceRequest({
+                    tenantId: selectedMaintenanceRequest.tenantId || '',
+                    tenantName: selectedMaintenanceRequest.tenantName || '',
+                    property: selectedMaintenanceRequest.property || '',
+                    issue: selectedMaintenanceRequest.issue || '',
+                    priority: selectedMaintenanceRequest.priority || 'medium',
+                    description: selectedMaintenanceRequest.description || '',
+                    date: selectedMaintenanceRequest.date || new Date().toISOString().split('T')[0],
+                    id: selectedMaintenanceRequest.id
+                  });
+                  setShowAddMaintenanceModal(true);
+                }}
+              >
                 Edit
               </button>
               <button className="btn btn-danger" onClick={(e) => {

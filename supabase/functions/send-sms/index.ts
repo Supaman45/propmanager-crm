@@ -57,26 +57,42 @@ serve(async (req) => {
       )
     }
 
-    // Log notification if tenantId and userId are provided
-    if (tenantId && userId) {
+    // Save outbound message and log notification if tenantId and userId are provided
+    if (tenantId || userId) {
       const supabaseUrl = Deno.env.get('SUPABASE_URL') || ''
       const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
       
       if (supabaseUrl && supabaseServiceKey) {
         const supabase = createClient(supabaseUrl, supabaseServiceKey)
         
-        await supabase.from('notification_log').insert({
-          user_id: userId,
-          tenant_id: tenantId,
-          type: 'sms',
+        // Save outbound SMS message
+        await supabase.from('sms_messages').insert({
+          tenant_id: tenantId || null,
+          phone_number: to,
+          direction: 'outbound',
           message: message,
-          recipient: to,
-          status: 'sent',
-          sent_at: new Date().toISOString()
+          twilio_sid: twilioData.sid,
+          status: 'delivered'
         }).catch(err => {
-          console.error('Error logging notification:', err)
-          // Don't fail the request if logging fails
+          console.error('Error saving SMS message:', err)
+          // Don't fail the request if saving fails
         })
+        
+        // Log notification if userId is provided
+        if (tenantId && userId) {
+          await supabase.from('notification_log').insert({
+            user_id: userId,
+            tenant_id: tenantId,
+            type: 'sms',
+            message: message,
+            recipient: to,
+            status: 'sent',
+            sent_at: new Date().toISOString()
+          }).catch(err => {
+            console.error('Error logging notification:', err)
+            // Don't fail the request if logging fails
+          })
+        }
       }
     }
 
