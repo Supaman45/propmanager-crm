@@ -186,6 +186,7 @@ function App() {
   const [propertySearchQuery, setPropertySearchQuery] = useState('');
   const [maintenanceSearchQuery, setMaintenanceSearchQuery] = useState('');
   const [maintenanceFilterTab, setMaintenanceFilterTab] = useState('all');
+  const [showCompleted, setShowCompleted] = useState(false);
   const [confirmPaymentChange, setConfirmPaymentChange] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [showPaymentLog, setShowPaymentLog] = useState(null);
@@ -1245,26 +1246,42 @@ function App() {
     return tags.filter(t => tagIds.includes(t.id));
   };
 
-  // TenantKanbanCard component for improved Kanban view
-  const TenantKanbanCard = ({ tenant, status, onClick }) => {
+  // MaintenanceCard component for card grid layout
+  const MaintenanceCard = ({ request, onClick }) => {
     const [isHovered, setIsHovered] = useState(false);
     
-    // Get property info
-    const property = properties.find(p => p.id === tenant.property_id || p.address === tenant.property);
+    const priority = (request.priority || 'medium').toLowerCase();
+    const status = (request.status || 'open').toLowerCase();
+    const statusDisplay = getMaintenanceStatusDisplay(request.status);
+    const unit = extractUnitNumber(request.property);
+    const propertyName = request.property ? request.property.replace(/\s*(?:Unit|Apt|Apartment|#)\s*[A-Z0-9]+/i, '').trim() : request.property;
     
-    // Calculate days late (mock - would come from payment data)
-    const daysLate = status === 'late' ? Math.floor(Math.random() * 30) + 1 : 0;
-    
-    // Get balance
-    const balance = parseFloat(tenant.balance) || 0;
-    
-    // Border color based on status
-    const getBorderColor = () => {
-      if (status === 'late') return '#ef4444';
-      if (status === 'prospect') return '#3b82f6';
-      if (status === 'past') return '#9ca3af';
-      return '#10b981';
+    // Get priority border color
+    const getPriorityBorderColor = () => {
+      if (priority === 'urgent') return '#dc2626';
+      if (priority === 'high') return '#f97316';
+      if (priority === 'medium') return '#eab308';
+      return '#6b7280'; // low
     };
+    
+    // Get priority badge background color
+    const getPriorityBadgeColor = () => {
+      if (priority === 'urgent') return { bg: '#fee2e2', color: '#991b1b' };
+      if (priority === 'high') return { bg: '#fed7aa', color: '#9a3412' };
+      if (priority === 'medium') return { bg: '#fef9c3', color: '#854d0e' };
+      return { bg: '#f3f4f6', color: '#4b5563' }; // low
+    };
+    
+    // Get status badge color
+    const getStatusBadgeColor = () => {
+      if (status === 'closed' || status === 'completed') return { bg: '#d1fae5', color: '#065f46' };
+      if (status === 'in_progress' || status === 'in progress') return { bg: '#dbeafe', color: '#1e40af' };
+      return { bg: '#fff7ed', color: '#9a3412' }; // open/pending
+    };
+    
+    const priorityBadge = getPriorityBadgeColor();
+    const statusBadge = getStatusBadgeColor();
+    const isCompleted = status === 'closed' || status === 'completed';
     
     return (
       <div
@@ -1274,14 +1291,268 @@ function App() {
         style={{
           background: 'white',
           borderRadius: 8,
+          padding: 16,
+          cursor: 'pointer',
+          borderLeft: `4px solid ${isCompleted ? '#d1d5db' : getPriorityBorderColor()}`,
+          boxShadow: isHovered ? '0 4px 12px rgba(0,0,0,0.15)' : '0 1px 3px rgba(0,0,0,0.08)',
+          transform: isHovered ? 'translateY(-2px)' : 'none',
+          transition: 'all 0.2s ease',
+          position: 'relative',
+          opacity: isCompleted ? 0.6 : 1
+        }}
+      >
+        {/* Header: Title and Status Badge */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+          <h3 style={{ 
+            fontWeight: 600, 
+            fontSize: 16, 
+            margin: 0, 
+            flex: 1, 
+            paddingRight: 12,
+            color: isCompleted ? '#6b7280' : '#111827',
+            textDecoration: isCompleted ? 'line-through' : 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8
+          }}>
+            {isCompleted && <span style={{ fontSize: 14 }}>✓</span>}
+            {request.issue}
+          </h3>
+          <span style={{
+            padding: '4px 10px',
+            borderRadius: 12,
+            fontSize: 12,
+            fontWeight: 500,
+            background: statusBadge.bg,
+            color: statusBadge.color,
+            whiteSpace: 'nowrap'
+          }}>
+            {statusDisplay}
+          </span>
+        </div>
+        
+        {/* Priority Badge */}
+        <div style={{ marginBottom: 12 }}>
+          <span style={{
+            padding: '4px 10px',
+            borderRadius: 6,
+            fontSize: 11,
+            fontWeight: 600,
+            background: priorityBadge.bg,
+            color: priorityBadge.color,
+            textTransform: 'uppercase'
+          }}>
+            {priority}
+          </span>
+        </div>
+        
+        {/* Property and Unit */}
+        <div style={{ fontSize: 14, color: '#4b5563', marginBottom: 8 }}>
+          {propertyName && unit ? (
+            <span>{propertyName} - {unit}</span>
+          ) : propertyName ? (
+            <span>{propertyName}</span>
+          ) : unit ? (
+            <span>Unit {unit}</span>
+          ) : (
+            <span style={{ fontStyle: 'italic', color: '#9ca3af' }}>No Property</span>
+          )}
+        </div>
+        
+        {/* Tenant Name */}
+        {request.tenantName && (
+          <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>
+            Tenant: {request.tenantName}
+          </div>
+        )}
+        
+        {/* Created Date */}
+        <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: isHovered ? 12 : 0 }}>
+          Created {request.date ? new Date(request.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
+        </div>
+        
+        {/* Hover Actions */}
+        {isHovered && (
+          <div 
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              gap: 8,
+              paddingTop: 12,
+              borderTop: '1px solid #e5e7eb'
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onMouseEnter={(e) => e.stopPropagation()}
+            onMouseLeave={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                e.preventDefault();
+                setSelectedMaintenanceRequest(request);
+                showToast('Status change feature coming soon', 'info');
+              }}
+              onMouseEnter={(e) => {
+                e.stopPropagation();
+                e.currentTarget.style.background = '#f3f4f6';
+              }}
+              onMouseLeave={(e) => {
+                e.stopPropagation();
+                e.currentTarget.style.background = 'transparent';
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '4px 8px',
+                borderRadius: 4,
+                fontSize: 14,
+                color: '#2563eb',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                transition: 'background 0.2s'
+              }}
+              title="Change Status"
+            >
+              🔄 Change Status
+            </button>
+            <button
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                e.preventDefault();
+                setSelectedMaintenanceRequest(request);
+                showToast('Assign vendor feature coming soon', 'info');
+              }}
+              onMouseEnter={(e) => {
+                e.stopPropagation();
+                e.currentTarget.style.background = '#f3f4f6';
+              }}
+              onMouseLeave={(e) => {
+                e.stopPropagation();
+                e.currentTarget.style.background = 'transparent';
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '4px 8px',
+                borderRadius: 4,
+                fontSize: 14,
+                color: '#059669',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                transition: 'background 0.2s'
+              }}
+              title="Assign Vendor"
+            >
+              👷 Assign Vendor
+            </button>
+            <button
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                e.preventDefault();
+                setSelectedMaintenanceRequest(request);
+                showToast('Add note feature coming soon', 'info');
+              }}
+              onMouseEnter={(e) => {
+                e.stopPropagation();
+                e.currentTarget.style.background = '#f3f4f6';
+              }}
+              onMouseLeave={(e) => {
+                e.stopPropagation();
+                e.currentTarget.style.background = 'transparent';
+              }}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '4px 8px',
+                borderRadius: 4,
+                fontSize: 14,
+                color: '#d97706',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                transition: 'background 0.2s'
+              }}
+              title="Add Note"
+            >
+              📝 Add Note
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // TenantKanbanCard component for improved Kanban view
+  const TenantKanbanCard = ({ tenant, status, onClick }) => {
+    const [isHovered, setIsHovered] = useState(false);
+    
+    // Get property info - look up by property_id first, then fallback to address match
+    const property = properties.find(p => {
+      if (tenant.property_id && p.id === tenant.property_id) return true;
+      if (tenant.property && p.address && tenant.property.includes(p.address)) return true;
+      return false;
+    });
+    
+    // Format property and unit display
+    const getPropertyDisplay = () => {
+      if (!property && !tenant.unit) {
+        return <span style={{ fontStyle: 'italic', color: '#9ca3af' }}>No Property</span>;
+      }
+      
+      const propertyName = property?.name || property?.address?.split(',')[0] || '';
+      const unit = tenant.unit || '';
+      
+      if (propertyName && unit) {
+        // If both exist, show "Property Name - Unit #" or compact "Unit # @ Property"
+        return `${propertyName} - ${unit}`;
+      } else if (unit) {
+        return `Unit ${unit}`;
+      } else if (propertyName) {
+        return propertyName;
+      }
+      
+      return <span style={{ fontStyle: 'italic', color: '#9ca3af' }}>No Property</span>;
+    };
+    
+    // Calculate days late (mock - would come from payment data)
+    const daysLate = status === 'late' ? Math.floor(Math.random() * 30) + 1 : 0;
+    
+    // Get balance
+    const balance = parseFloat(tenant.balance) || 0;
+    
+    // Border color and background based on status - Late cards always have red styling
+    const getBorderColor = () => {
+      if (status === 'late') return '#dc2626';
+      if (status === 'prospect') return '#3b82f6';
+      if (status === 'past') return '#9ca3af';
+      return '#10b981';
+    };
+    
+    const getBackgroundColor = () => {
+      if (status === 'late') return '#fef2f2';
+      return 'white';
+    };
+    
+    return (
+      <div
+        onClick={onClick}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        style={{
+          background: getBackgroundColor(),
+          borderRadius: 8,
           padding: 12,
           cursor: 'pointer',
           borderLeft: `4px solid ${getBorderColor()}`,
           boxShadow: isHovered ? '0 4px 12px rgba(0,0,0,0.15)' : '0 1px 3px rgba(0,0,0,0.08)',
           transform: isHovered ? 'translateY(-2px)' : 'none',
           transition: 'all 0.2s ease',
-          position: 'relative',
-          marginBottom: isHovered ? 40 : 0
+          position: 'relative'
         }}
       >
         {/* Main Content */}
@@ -1305,32 +1576,31 @@ function App() {
               {tenant.name}
             </p>
             <p style={{ fontSize: 12, color: '#6b7280', margin: '2px 0 0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {tenant.unit ? `Unit ${tenant.unit}` : (property?.name || property?.address || 'Unassigned')}
+              {getPropertyDisplay()}
             </p>
           </div>
         </div>
         
-        {/* Stats Row */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {/* Rent Amount */}
+        <div>
           <span style={{ fontSize: 14, fontWeight: 600, color: '#1f2937' }}>
             ${parseFloat(tenant.rentAmount || tenant.rent || 0).toLocaleString()}/mo
           </span>
-          
-          {status === 'late' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              {balance > 0 && (
-                <span style={{ 
-                  fontSize: 12, 
-                  fontWeight: 600, 
-                  color: '#dc2626',
-                  background: '#fef2f2',
-                  padding: '2px 8px',
-                  borderRadius: 4
-                }}>
-                  ${balance.toLocaleString()} due
-                </span>
-              )}
-            </div>
+        </div>
+        
+        {/* Stats Row - Balance, Lease End, or Lead Badge */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {status === 'late' && balance > 0 && (
+            <span style={{ 
+              fontSize: 12, 
+              fontWeight: 600, 
+              color: '#dc2626',
+              background: '#fee2e2',
+              padding: '2px 8px',
+              borderRadius: 4
+            }}>
+              ${balance.toLocaleString()} due
+            </span>
           )}
           
           {status === 'current' && (tenant.leaseEnd || tenant.lease_end) && (
@@ -1370,81 +1640,114 @@ function App() {
           </div>
         )}
         
-        {/* Hover Actions */}
+        {/* Hover Actions - Below rent amount */}
         {isHovered && (
           <div 
             style={{
-              position: 'absolute',
-              bottom: -8,
-              left: '50%',
-              transform: 'translateX(-50%)',
               display: 'flex',
-              gap: 4,
-              background: 'white',
-              padding: '4px 8px',
-              borderRadius: 20,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-              zIndex: 10
+              justifyContent: 'center',
+              gap: 8,
+              marginTop: 8,
+              paddingTop: 8,
+              borderTop: '1px solid #e5e7eb'
             }}
+            onMouseEnter={(e) => e.stopPropagation()}
+            onMouseLeave={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
             <button
-              onClick={(e) => { e.stopPropagation(); if (tenant.email) window.location.href = `mailto:${tenant.email}`; }}
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                e.preventDefault();
+                if (tenant.email) window.location.href = `mailto:${tenant.email}`; 
+              }}
+              onMouseEnter={(e) => {
+                e.stopPropagation();
+                e.currentTarget.style.background = '#f3f4f6';
+              }}
+              onMouseLeave={(e) => {
+                e.stopPropagation();
+                e.currentTarget.style.background = 'transparent';
+              }}
               style={{
-                width: 28,
-                height: 28,
-                borderRadius: '50%',
+                background: 'transparent',
                 border: 'none',
-                background: '#eff6ff',
-                color: '#2563eb',
                 cursor: 'pointer',
+                padding: '4px 8px',
+                borderRadius: 4,
+                fontSize: 20,
+                color: '#2563eb',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 12
+                transition: 'background 0.2s'
               }}
               title="Email"
             >
-              ✉️
+              ✉
             </button>
             <button
-              onClick={(e) => { e.stopPropagation(); if (tenant.phone) window.location.href = `tel:${tenant.phone}`; }}
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                e.preventDefault();
+                if (tenant.phone) window.location.href = `tel:${tenant.phone}`; 
+              }}
+              onMouseEnter={(e) => {
+                e.stopPropagation();
+                e.currentTarget.style.background = '#f3f4f6';
+              }}
+              onMouseLeave={(e) => {
+                e.stopPropagation();
+                e.currentTarget.style.background = 'transparent';
+              }}
               style={{
-                width: 28,
-                height: 28,
-                borderRadius: '50%',
+                background: 'transparent',
                 border: 'none',
-                background: '#f0fdf4',
-                color: '#059669',
                 cursor: 'pointer',
+                padding: '4px 8px',
+                borderRadius: 4,
+                fontSize: 20,
+                color: '#059669',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 12
+                transition: 'background 0.2s'
               }}
               title="Call"
             >
-              📞
+              ☎
             </button>
             {status === 'late' && (
               <button
-                onClick={(e) => { e.stopPropagation(); showToast('Payment feature coming soon', 'info'); }}
+                onClick={(e) => { 
+                  e.stopPropagation(); 
+                  e.preventDefault();
+                  showToast('Payment feature coming soon', 'info'); 
+                }}
+                onMouseEnter={(e) => {
+                  e.stopPropagation();
+                  e.currentTarget.style.background = '#f3f4f6';
+                }}
+                onMouseLeave={(e) => {
+                  e.stopPropagation();
+                  e.currentTarget.style.background = 'transparent';
+                }}
                 style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: '50%',
+                  background: 'transparent',
                   border: 'none',
-                  background: '#fef3c7',
-                  color: '#d97706',
                   cursor: 'pointer',
+                  padding: '4px 8px',
+                  borderRadius: 4,
+                  fontSize: 20,
+                  color: '#d97706',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: 12
+                  transition: 'background 0.2s'
                 }}
                 title="Record Payment"
               >
-                💰
+                $
               </button>
             )}
           </div>
@@ -6092,7 +6395,7 @@ function App() {
             </div>
           </div>
           
-          {/* Navigation */}
+          {/* Main Navigation */}
           <nav style={{ padding: 16, flex: 1, overflowY: 'auto' }}>
             <div
               onClick={() => setActiveTab('dashboard')}
@@ -6155,26 +6458,6 @@ function App() {
             </div>
             
             <div
-              onClick={() => setActiveTab('owners')}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                padding: '12px 16px',
-                borderRadius: 8,
-                cursor: 'pointer',
-                background: activeTab === 'owners' ? '#e8f0fe' : 'transparent',
-                color: activeTab === 'owners' ? '#1a73e8' : '#4b5563',
-                fontWeight: activeTab === 'owners' ? 600 : 400,
-                marginBottom: 4,
-                transition: 'background 0.2s'
-              }}
-            >
-              <span style={{ fontSize: 20 }}>👤</span>
-              {!sidebarCollapsed && <span>Owners</span>}
-            </div>
-            
-            <div
               onClick={() => setActiveTab('maintenance')}
               style={{
                 display: 'flex',
@@ -6232,6 +6515,35 @@ function App() {
             >
               <span style={{ fontSize: 20 }}>📈</span>
               {!sidebarCollapsed && <span>Reports</span>}
+            </div>
+          </nav>
+          
+          {/* Divider */}
+          <div style={{ 
+            borderTop: '1px solid #e5e7eb', 
+            margin: '16px 12px' 
+          }} />
+          
+          {/* Bottom Navigation */}
+          <nav style={{ padding: '0 16px 16px' }}>
+            <div
+              onClick={() => setActiveTab('owners')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 16px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                background: activeTab === 'owners' ? '#e8f0fe' : 'transparent',
+                color: activeTab === 'owners' ? '#1a73e8' : '#4b5563',
+                fontWeight: activeTab === 'owners' ? 600 : 400,
+                marginBottom: 4,
+                transition: 'background 0.2s'
+              }}
+            >
+              <span style={{ fontSize: 20 }}>👤</span>
+              {!sidebarCollapsed && <span>Owners</span>}
             </div>
             
             <div
@@ -8271,7 +8583,7 @@ function App() {
                     </div>
                   </div>
 
-                  {/* Stats Cards Row */}
+                  {/* Stats Cards Row - Clickable Filters */}
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
                     {(() => {
                       const pending = maintenanceRequests.filter(r => {
@@ -8289,19 +8601,35 @@ function App() {
                         return status === 'closed' || status === 'completed';
                       }).length;
                       
+                      const isPendingActive = maintenanceFilterTab === 'pending';
+                      const isInProgressActive = maintenanceFilterTab === 'active';
+                      const isCompletedActive = maintenanceFilterTab === 'completed';
+                      
                       return (
                         <>
                           {/* Pending Card */}
-                          <div style={{
-                            background: '#fff',
-                            border: '1px solid #e5e7eb',
-                            borderRadius: '12px',
-                            padding: '20px',
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '16px'
-                          }}>
+                          <div 
+                            onClick={() => setMaintenanceFilterTab(isPendingActive ? 'all' : 'pending')}
+                            style={{
+                              background: '#fff',
+                              border: '1px solid #e5e7eb',
+                              borderRadius: '12px',
+                              padding: '20px',
+                              boxShadow: isPendingActive ? '0 4px 12px rgba(0,0,0,0.15)' : '0 1px 3px rgba(0,0,0,0.1)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '16px',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s',
+                              borderLeft: isPendingActive ? '4px solid #c2410c' : '1px solid #e5e7eb'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isPendingActive) e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.12)';
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isPendingActive) e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+                            }}
+                          >
                             <div style={{
                               width: '48px',
                               height: '48px',
@@ -8324,16 +8652,28 @@ function App() {
                           </div>
 
                           {/* In Progress Card */}
-                          <div style={{
-                            background: '#fff',
-                            border: '1px solid #e5e7eb',
-                            borderRadius: '12px',
-                            padding: '20px',
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '16px'
-                          }}>
+                          <div 
+                            onClick={() => setMaintenanceFilterTab(isInProgressActive ? 'all' : 'active')}
+                            style={{
+                              background: '#fff',
+                              border: '1px solid #e5e7eb',
+                              borderRadius: '12px',
+                              padding: '20px',
+                              boxShadow: isInProgressActive ? '0 4px 12px rgba(0,0,0,0.15)' : '0 1px 3px rgba(0,0,0,0.1)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '16px',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s',
+                              borderLeft: isInProgressActive ? '4px solid #1a73e8' : '1px solid #e5e7eb'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isInProgressActive) e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.12)';
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isInProgressActive) e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+                            }}
+                          >
                             <div style={{
                               width: '48px',
                               height: '48px',
@@ -8356,16 +8696,31 @@ function App() {
                           </div>
 
                           {/* Completed Card */}
-                          <div style={{
-                            background: '#fff',
-                            border: '1px solid #e5e7eb',
-                            borderRadius: '12px',
-                            padding: '20px',
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '16px'
-                          }}>
+                          <div 
+                            onClick={() => {
+                              setShowCompleted(!showCompleted);
+                              setMaintenanceFilterTab('all'); // Reset filter when toggling completed
+                            }}
+                            style={{
+                              background: '#fff',
+                              border: '1px solid #e5e7eb',
+                              borderRadius: '12px',
+                              padding: '20px',
+                              boxShadow: showCompleted ? '0 4px 12px rgba(0,0,0,0.15)' : '0 1px 3px rgba(0,0,0,0.1)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '16px',
+                              cursor: 'pointer',
+                              transition: 'all 0.2s',
+                              borderLeft: showCompleted ? '4px solid #166534' : '1px solid #e5e7eb'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!showCompleted) e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.12)';
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!showCompleted) e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+                            }}
+                          >
                             <div style={{
                               width: '48px',
                               height: '48px',
@@ -8443,62 +8798,26 @@ function App() {
                     </button>
                   </div>
 
-                  {/* Tab Navigation */}
-                  <div style={{
-                    display: 'flex',
-                    gap: '0',
-                    borderBottom: '1px solid #e5e7eb',
-                    marginBottom: '24px'
-                  }}>
-                    {['all', 'pending', 'active', 'completed'].map(tab => {
-                      const isActive = maintenanceFilterTab === tab;
-                      return (
-                        <button
-                          key={tab}
-                          onClick={() => setMaintenanceFilterTab(tab)}
-                          style={{
-                            padding: '12px 24px',
-                            border: 'none',
-                            background: 'none',
-                            fontSize: '14px',
-                            fontWeight: '500',
-                            color: isActive ? '#1a73e8' : '#6b7280',
-                            cursor: 'pointer',
-                            borderBottom: isActive ? '2px solid #1a73e8' : '2px solid transparent',
-                            marginBottom: '-1px',
-                            textTransform: 'capitalize',
-                            transition: 'color 0.15s'
-                          }}
-                        >
-                          {tab === 'all' ? 'All' : tab === 'pending' ? 'Pending' : tab === 'active' ? 'Active' : 'Completed'}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Request Cards */}
-                  <div>
-                    {maintenanceRequests
+                  {/* Active Maintenance Cards Grid */}
+                  {(() => {
+                    const activeRequests = maintenanceRequests
                       .filter(request => {
-                        // Status filter
                         const status = (request.status || 'open').toLowerCase();
+                        if (status === 'closed' || status === 'completed') return false;
+                        
                         let matchesStatus = true;
                         if (maintenanceFilterTab === 'pending') {
                           matchesStatus = status === 'open';
                         } else if (maintenanceFilterTab === 'active') {
                           matchesStatus = status === 'in_progress' || status === 'in progress';
-                        } else if (maintenanceFilterTab === 'completed') {
-                          matchesStatus = status === 'closed' || status === 'completed';
                         }
                         
-                        // Search filter
                         const matchesSearch = !maintenanceSearchQuery || !maintenanceSearchQuery.trim() ||
                           (request.issue && request.issue.toLowerCase().includes(maintenanceSearchQuery.toLowerCase())) ||
                           (request.description && request.description.toLowerCase().includes(maintenanceSearchQuery.toLowerCase())) ||
                           (request.property && request.property.toLowerCase().includes(maintenanceSearchQuery.toLowerCase())) ||
                           (request.tenantName && request.tenantName.toLowerCase().includes(maintenanceSearchQuery.toLowerCase()));
                         
-                        // Tag filter
                         let matchesTags = true;
                         if (selectedTagFilters.length > 0) {
                           const requestTagIds = getTagsForRecord('maintenance', request.id).map(tag => tag.id);
@@ -8507,148 +8826,133 @@ function App() {
                         
                         return matchesStatus && matchesSearch && matchesTags;
                       })
-                      .map(request => {
-                        const priority = (request.priority || 'medium').toLowerCase();
+                      .sort((a, b) => {
+                        const dateA = new Date(a.date || a.created_at || 0);
+                        const dateB = new Date(b.date || b.created_at || 0);
+                        return dateB - dateA;
+                      });
+                    
+                    const completedRequests = maintenanceRequests
+                      .filter(request => {
                         const status = (request.status || 'open').toLowerCase();
-                        const statusDisplay = getMaintenanceStatusDisplay(request.status);
-                        const unit = extractUnitNumber(request.property);
-                        const propertyName = request.property ? request.property.replace(/\s*(?:Unit|Apt|Apartment|#)\s*[A-Z0-9]+/i, '').trim() : request.property;
+                        if (status !== 'closed' && status !== 'completed') return false;
                         
-                        // Map priority to CSS class
-                        const priorityClass = priority === 'low' ? 'priority-low' :
-                                             priority === 'medium' ? 'priority-medium' :
-                                             priority === 'high' ? 'priority-high' :
-                                             priority === 'urgent' ? 'priority-urgent' : 'priority-medium';
+                        const matchesSearch = !maintenanceSearchQuery || !maintenanceSearchQuery.trim() ||
+                          (request.issue && request.issue.toLowerCase().includes(maintenanceSearchQuery.toLowerCase())) ||
+                          (request.description && request.description.toLowerCase().includes(maintenanceSearchQuery.toLowerCase())) ||
+                          (request.property && request.property.toLowerCase().includes(maintenanceSearchQuery.toLowerCase())) ||
+                          (request.tenantName && request.tenantName.toLowerCase().includes(maintenanceSearchQuery.toLowerCase()));
                         
-                        // Map status to CSS class
-                        let statusClass = 'maintenance-status-pending';
-                        if (status === 'in_progress' || status === 'in progress') {
-                          statusClass = 'maintenance-status-active';
-                        } else if (status === 'closed' || status === 'completed') {
-                          statusClass = 'maintenance-status-completed';
+                        let matchesTags = true;
+                        if (selectedTagFilters.length > 0) {
+                          const requestTagIds = getTagsForRecord('maintenance', request.id).map(tag => tag.id);
+                          matchesTags = selectedTagFilters.every(filterTagId => requestTagIds.includes(filterTagId));
                         }
                         
-                        return (
-                          <div
-                            key={request.id}
-                            className="maintenance-card"
-                            onClick={() => {
-                              setSelectedMaintenanceRequest(request);
-                            }}
-                            onContextMenu={(e) => {
-                              e.preventDefault();
-                              setQuickTagMenu({
-                                recordType: 'maintenance',
-                                recordId: request.id,
-                                x: e.clientX,
-                                y: e.clientY
-                              });
-                            }}
-                          >
-                            <div style={{ flex: 1 }}>
-                              {/* Card Header: Title + Priority Badge */}
-                              <div className="maintenance-card-header">
-                                <h3 className="maintenance-card-title">
-                                  {request.issue}
-                                </h3>
-                                <span className={`priority-badge ${priorityClass}`}>
-                                  {(request.priority || 'medium').toUpperCase()}
-                                </span>
-                                {/* Tags */}
-                                {getTagsForRecord('maintenance', request.id).map(tag => (
-                                  <span
-                                    key={tag.id}
-                                    className={`tag-pill ${tag.color} clickable`}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (!selectedTagFilters.includes(tag.id)) {
-                                        setSelectedTagFilters([...selectedTagFilters, tag.id]);
-                                        setActiveTab('maintenance');
-                                      }
+                        return matchesSearch && matchesTags;
+                      })
+                      .sort((a, b) => {
+                        const dateA = new Date(a.date || a.created_at || 0);
+                        const dateB = new Date(b.date || b.created_at || 0);
+                        return dateB - dateA;
+                      });
+                    
+                    return (
+                      <>
+                        <div style={{ 
+                          display: 'grid', 
+                          gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(350px, 1fr))', 
+                          gap: 20 
+                        }}>
+                          {activeRequests.map(request => (
+                            <MaintenanceCard 
+                              key={request.id}
+                              request={request}
+                              onClick={() => {
+                                setSelectedMaintenanceRequest(request);
+                              }}
+                            />
+                          ))}
+                          
+                          {/* Empty State for Active Requests */}
+                          {activeRequests.length === 0 && (
+                            <div style={{
+                              gridColumn: '1 / -1',
+                              textAlign: 'center',
+                              padding: '60px 20px',
+                              background: 'white',
+                              borderRadius: 12,
+                              border: '1px solid #e5e7eb'
+                            }}>
+                              <div style={{ fontSize: 48, marginBottom: 16 }}>🔧</div>
+                              <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: '#111827' }}>No active maintenance requests</h3>
+                              <p style={{ color: '#6b7280', fontSize: 14 }}>
+                                {maintenanceFilterTab !== 'all' 
+                                  ? 'Try adjusting your filters or create a new request.'
+                                  : 'Create your first maintenance request to get started.'}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {/* Show Completed Toggle */}
+                        {completedRequests.length > 0 && (
+                          <>
+                            <div style={{ 
+                              marginTop: 24, 
+                              paddingTop: 16, 
+                              borderTop: '1px solid #e5e7eb',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8
+                            }}>
+                              <button
+                                onClick={() => setShowCompleted(!showCompleted)}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: '#6b7280',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  fontSize: 14,
+                                  padding: '4px 8px',
+                                  borderRadius: 4,
+                                  transition: 'background 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#f3f4f6'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                              >
+                                <span style={{ fontSize: 12 }}>{showCompleted ? '▼' : '▶'}</span>
+                                <span>Completed ({completedRequests.length})</span>
+                              </button>
+                            </div>
+                            
+                            {showCompleted && (
+                              <div style={{ 
+                                display: 'grid', 
+                                gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(350px, 1fr))', 
+                                gap: 20,
+                                marginTop: 16,
+                                opacity: 0.7
+                              }}>
+                                {completedRequests.map(request => (
+                                  <MaintenanceCard 
+                                    key={request.id}
+                                    request={request}
+                                    onClick={() => {
+                                      setSelectedMaintenanceRequest(request);
                                     }}
-                                    title={`Filter by ${tag.name}`}
-                                  >
-                                    {tag.name}
-                                  </span>
+                                  />
                                 ))}
                               </div>
-
-                              {/* Description */}
-                              {request.description && (
-                                <p className="maintenance-card-description">
-                                  {request.description}
-                                </p>
-                              )}
-
-                              {/* Meta Information: 4 columns */}
-                              <div className="maintenance-card-meta">
-                                <div className="maintenance-card-meta-item">
-                                  <span className="maintenance-card-meta-label">Property</span>
-                                  <span className="maintenance-card-meta-value">{propertyName || 'N/A'}</span>
-                                </div>
-                                <div className="maintenance-card-meta-item">
-                                  <span className="maintenance-card-meta-label">Unit</span>
-                                  <span className="maintenance-card-meta-value">{unit && unit !== request.property ? unit : 'N/A'}</span>
-                                </div>
-                                <div className="maintenance-card-meta-item">
-                                  <span className="maintenance-card-meta-label">Tenant</span>
-                                  <span className="maintenance-card-meta-value">{request.tenantName || 'N/A'}</span>
-                                </div>
-                                <div className="maintenance-card-meta-item">
-                                  <span className="maintenance-card-meta-label">Created</span>
-                                  <span className="maintenance-card-meta-value">
-                                    {request.date ? new Date(request.date).toLocaleDateString() : 'N/A'}
-                                  </span>
-                                </div>
-                              </div>
-
-                              {/* Assigned to */}
-                              {request.assignedTo && (
-                                <div style={{
-                                  fontSize: '13px',
-                                  color: '#6b7280',
-                                  marginTop: '12px'
-                                }}>
-                                  Assigned to: <strong>{request.assignedTo}</strong>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Status Badge */}
-                            <div style={{ marginLeft: '16px', flexShrink: 0 }}>
-                              <span className={`maintenance-status-badge ${statusClass}`}>
-                                {statusDisplay}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    {maintenanceRequests.filter(request => {
-                      const status = (request.status || 'open').toLowerCase();
-                      let matchesStatus = true;
-                      if (maintenanceFilterTab === 'pending') {
-                        matchesStatus = status === 'open';
-                      } else if (maintenanceFilterTab === 'active') {
-                        matchesStatus = status === 'in_progress' || status === 'in progress';
-                      } else if (maintenanceFilterTab === 'completed') {
-                        matchesStatus = status === 'closed' || status === 'completed';
-                      }
-                      const matchesSearch = !maintenanceSearchQuery || !maintenanceSearchQuery.trim() ||
-                        (request.issue && request.issue.toLowerCase().includes(maintenanceSearchQuery.toLowerCase())) ||
-                        (request.description && request.description.toLowerCase().includes(maintenanceSearchQuery.toLowerCase())) ||
-                        (request.property && request.property.toLowerCase().includes(maintenanceSearchQuery.toLowerCase())) ||
-                        (request.tenantName && request.tenantName.toLowerCase().includes(maintenanceSearchQuery.toLowerCase()));
-                      return matchesStatus && matchesSearch;
-                    }).length === 0 && (
-                      <div style={{
-                        textAlign: 'center',
-                        padding: '40px',
-                        color: '#5f6368'
-                      }}>
-                        No maintenance requests found
-                      </div>
-                    )}
-                  </div>
+                            )}
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               )}
 
