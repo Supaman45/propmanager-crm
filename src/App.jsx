@@ -392,6 +392,14 @@ function App() {
     end: new Date().toISOString().split('T')[0]
   });
   
+  // Owner Portal login state
+  const [ownerPortalView, setOwnerPortalView] = useState('login'); // 'login', 'dashboard'
+  const [portalOwner, setPortalOwner] = useState(null);
+  const [portalEmail, setPortalEmail] = useState('');
+  const [portalPassword, setPortalPassword] = useState('');
+  const [portalLoading, setPortalLoading] = useState(false);
+  const [portalError, setPortalError] = useState('');
+  
   // CSV Import state
   const [tenantCsvFile, setTenantCsvFile] = useState(null);
   const [tenantCsvData, setTenantCsvData] = useState(null);
@@ -3949,6 +3957,54 @@ function App() {
     }
   };
 
+  // Owner Portal Login
+  const handleOwnerPortalLogin = async (e) => {
+    e.preventDefault();
+    setPortalLoading(true);
+    setPortalError('');
+    
+    try {
+      // Find owner by email with portal enabled
+      const { data: owner, error } = await supabase
+        .from('owners')
+        .select('*')
+        .eq('email', portalEmail.toLowerCase().trim())
+        .eq('portal_enabled', true)
+        .single();
+      
+      if (error || !owner) {
+        setPortalError('Invalid email or portal access not enabled. Please contact your property manager.');
+        setPortalLoading(false);
+        return;
+      }
+      
+      // For now, simple email-based auth (in production, use proper password hashing)
+      // Check if portal_token matches or use email-based magic link
+      setPortalOwner(transformOwner(owner));
+      setOwnerPortalView('dashboard');
+      
+      // Update last login
+      await supabase
+        .from('owners')
+        .update({ portal_last_login: new Date().toISOString() })
+        .eq('id', owner.id);
+        
+    } catch (err) {
+      console.error('Portal login error:', err);
+      setPortalError('Login failed. Please try again.');
+    }
+    
+    setPortalLoading(false);
+  };
+
+  // Owner Portal Logout
+  const handleOwnerPortalLogout = () => {
+    setPortalOwner(null);
+    setOwnerPortalView('login');
+    setPortalEmail('');
+    setPortalPassword('');
+  };
+
   const handleAddExpense = async (propertyId, e) => {
     e?.preventDefault();
     if (!newExpense.description || !newExpense.amount) return;
@@ -5186,12 +5242,497 @@ function App() {
     setPropertyImportProgress({...progress});
   };
 
+  // Owner Portal Dashboard Component
+  const OwnerPortalDashboard = ({ owner, onLogout }) => {
+    const [portalTab, setPortalTab] = useState('overview');
+    const [ownerPropertiesData, setOwnerPropertiesData] = useState([]);
+    const [ownerTenantsData, setOwnerTenantsData] = useState([]);
+    const [ownerDistributionsData, setOwnerDistributionsData] = useState([]);
+    const [loading, setLoading] = useState(true);
+    
+    useEffect(() => {
+      loadOwnerData();
+    }, [owner]);
+    
+    const loadOwnerData = async () => {
+      setLoading(true);
+      try {
+        // Load owner's properties
+        const { data: ownerProps, error: propsError } = await supabase
+          .from('owner_properties')
+          .select('*, properties(*)')
+          .eq('owner_id', owner.id);
+        
+        if (propsError) throw propsError;
+        
+        const propertyIds = ownerProps?.map(op => op.property_id).filter(Boolean) || [];
+        
+        // Load tenants for those properties
+        let tenantData = [];
+        if (propertyIds.length > 0) {
+          const { data: tenants, error: tenantsError } = await supabase
+            .from('tenants')
+            .select('*')
+            .in('property_id', propertyIds);
+          
+          if (!tenantsError) {
+            tenantData = tenants || [];
+          }
+        }
+        
+        // Load distributions
+        const { data: distData, error: distError } = await supabase
+          .from('owner_distributions')
+          .select('*')
+          .eq('owner_id', owner.id)
+          .order('created_at', { ascending: false });
+        
+        if (!distError) {
+          setOwnerDistributionsData(distData || []);
+        }
+        
+        setOwnerPropertiesData(ownerProps?.map(op => ({
+          ...op.properties,
+          ownership_percentage: op.ownership_percentage
+        })).filter(p => p.id) || []);
+        setOwnerTenantsData(tenantData);
+      } catch (err) {
+        console.error('Failed to load owner data:', err);
+      }
+      setLoading(false);
+    };
+    
+    // Calculate totals
+    const totalUnits = ownerPropertiesData.reduce((sum, p) => sum + (p.units || p.total_units || 1), 0);
+    const occupiedUnits = ownerTenantsData.filter(t => (t.status === 'Current' || t.status === 'current' || t.status === 'Late' || t.status === 'late')).length;
+    const monthlyRevenue = ownerTenantsData
+      .filter(t => (t.status === 'Current' || t.status === 'current' || t.status === 'Late' || t.status === 'late'))
+      .reduce((sum, t) => sum + (parseFloat(t.rentAmount || t.rent || 0)), 0);
+    const managementFee = monthlyRevenue * ((owner.managementFeePercent || owner.management_fee_percent || 10) / 100);
+    const netIncome = monthlyRevenue - managementFee;
+    
+    if (loading) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f9fafb' }}>
+          <p>Loading your dashboard...</p>
+        </div>
+      );
+    }
+    
+    return (
+      <div style={{ minHeight: '100vh', background: '#f9fafb' }}>
+        {/* Header */}
+        <header style={{
+          background: 'white',
+          borderBottom: '1px solid #e5e7eb',
+          padding: '16px 24px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          position: 'sticky',
+          top: 0,
+          zIndex: 100
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 28 }}>🏠</span>
+            <div>
+              <h1 style={{ fontSize: 20, fontWeight: 700, color: '#1a73e8', margin: 0 }}>Propli</h1>
+              <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Owner Portal</p>
+            </div>
+          </div>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <span style={{ fontSize: 14, color: '#4b5563' }}>Welcome, {owner.name}</span>
+            <button
+              onClick={onLogout}
+              style={{
+                padding: '8px 16px',
+                background: '#f3f4f6',
+                border: 'none',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontSize: 14
+              }}
+            >
+              Sign Out
+            </button>
+          </div>
+        </header>
+        
+        {/* Navigation Tabs */}
+        <div style={{ background: 'white', borderBottom: '1px solid #e5e7eb', padding: '0 24px' }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {['overview', 'properties', 'tenants', 'statements'].map(tab => (
+              <button
+                key={tab}
+                onClick={() => setPortalTab(tab)}
+                style={{
+                  padding: '16px 20px',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: portalTab === tab ? '2px solid #1a73e8' : '2px solid transparent',
+                  color: portalTab === tab ? '#1a73e8' : '#6b7280',
+                  fontWeight: portalTab === tab ? 600 : 400,
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  textTransform: 'capitalize'
+                }}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+        </div>
+        
+        {/* Content */}
+        <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto' }}>
+          
+          {/* Overview Tab */}
+          {portalTab === 'overview' && (
+            <div>
+              <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Dashboard Overview</h2>
+              
+              {/* Stats Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, marginBottom: 32 }}>
+                <div style={{ background: 'white', padding: 24, borderRadius: 12, border: '1px solid #e5e7eb' }}>
+                  <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>Properties</p>
+                  <p style={{ fontSize: 32, fontWeight: 700, color: '#1a73e8', margin: '8px 0 0' }}>{ownerPropertiesData.length}</p>
+                </div>
+                <div style={{ background: 'white', padding: 24, borderRadius: 12, border: '1px solid #e5e7eb' }}>
+                  <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>Occupancy</p>
+                  <p style={{ fontSize: 32, fontWeight: 700, color: '#10b981', margin: '8px 0 0' }}>
+                    {totalUnits > 0 ? Math.round((occupiedUnits / totalUnits) * 100) : 0}%
+                  </p>
+                  <p style={{ fontSize: 12, color: '#6b7280', margin: '4px 0 0' }}>{occupiedUnits} of {totalUnits} units</p>
+                </div>
+                <div style={{ background: 'white', padding: 24, borderRadius: 12, border: '1px solid #e5e7eb' }}>
+                  <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>Monthly Revenue</p>
+                  <p style={{ fontSize: 32, fontWeight: 700, color: '#10b981', margin: '8px 0 0' }}>${Math.round(monthlyRevenue).toLocaleString()}</p>
+                </div>
+                <div style={{ background: 'white', padding: 24, borderRadius: 12, border: '1px solid #e5e7eb' }}>
+                  <p style={{ fontSize: 14, color: '#6b7280', margin: 0 }}>Net Income</p>
+                  <p style={{ fontSize: 32, fontWeight: 700, color: '#059669', margin: '8px 0 0' }}>${Math.round(netIncome).toLocaleString()}</p>
+                  <p style={{ fontSize: 12, color: '#6b7280', margin: '4px 0 0' }}>After {owner.managementFeePercent || owner.management_fee_percent || 10}% fee</p>
+                </div>
+              </div>
+              
+              {/* Recent Activity */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+                {/* Properties Summary */}
+                <div style={{ background: 'white', padding: 24, borderRadius: 12, border: '1px solid #e5e7eb' }}>
+                  <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Your Properties</h3>
+                  {ownerPropertiesData.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      {ownerPropertiesData.map(prop => (
+                        <div key={prop.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, background: '#f9fafb', borderRadius: 8 }}>
+                          <div>
+                            <p style={{ fontWeight: 500, margin: 0 }}>{prop.name || prop.address}</p>
+                            <p style={{ fontSize: 13, color: '#6b7280', margin: '2px 0 0' }}>{prop.type || prop.property_type || 'Property'}</p>
+                          </div>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: '#1a73e8' }}>{prop.ownership_percentage || 100}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p style={{ color: '#9ca3af' }}>No properties assigned</p>
+                  )}
+                </div>
+                
+                {/* Recent Distributions */}
+                <div style={{ background: 'white', padding: 24, borderRadius: 12, border: '1px solid #e5e7eb' }}>
+                  <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>Recent Distributions</h3>
+                  {ownerDistributionsData.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      {ownerDistributionsData.slice(0, 5).map(dist => (
+                        <div key={dist.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 12, background: '#f9fafb', borderRadius: 8 }}>
+                          <div>
+                            <p style={{ fontWeight: 500, margin: 0 }}>
+                              {dist.period_start ? new Date(dist.period_start).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'N/A'}
+                            </p>
+                            <p style={{ fontSize: 13, color: dist.status === 'paid' ? '#10b981' : '#f59e0b', margin: '2px 0 0' }}>
+                              {dist.status === 'paid' ? 'Paid' : 'Pending'}
+                            </p>
+                          </div>
+                          <span style={{ fontSize: 16, fontWeight: 600, color: '#059669' }}>${parseFloat(dist.amount || 0).toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p style={{ color: '#9ca3af' }}>No distributions yet</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Properties Tab */}
+          {portalTab === 'properties' && (
+            <div>
+              <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Your Properties</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: 20 }}>
+                {ownerPropertiesData.map(prop => {
+                  const propTenants = ownerTenantsData.filter(t => t.property_id === prop.id);
+                  const propRevenue = propTenants.filter(t => (t.status === 'Current' || t.status === 'current' || t.status === 'Late' || t.status === 'late')).reduce((sum, t) => sum + (parseFloat(t.rentAmount || t.rent || 0)), 0);
+                  const propOccupied = propTenants.filter(t => (t.status === 'Current' || t.status === 'current' || t.status === 'Late' || t.status === 'late')).length;
+                  
+                  return (
+                    <div key={prop.id} style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+                      <div style={{ padding: 20 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                          <div>
+                            <h3 style={{ fontWeight: 600, fontSize: 18, margin: 0 }}>{prop.name || prop.address}</h3>
+                            <p style={{ fontSize: 14, color: '#6b7280', margin: '4px 0 0' }}>{prop.address}</p>
+                          </div>
+                          <span style={{ padding: '4px 12px', background: '#e8f0fe', color: '#1a73e8', borderRadius: 20, fontSize: 13, fontWeight: 500 }}>
+                            {prop.ownership_percentage || 100}% ownership
+                          </span>
+                        </div>
+                        
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+                          <div>
+                            <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Type</p>
+                            <p style={{ fontWeight: 500, margin: '4px 0 0' }}>{prop.type || prop.property_type || 'Property'}</p>
+                          </div>
+                          <div>
+                            <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Occupancy</p>
+                            <p style={{ fontWeight: 500, margin: '4px 0 0' }}>{propOccupied}/{prop.units || prop.total_units || 1}</p>
+                          </div>
+                          <div>
+                            <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Revenue</p>
+                            <p style={{ fontWeight: 500, margin: '4px 0 0', color: '#10b981' }}>${Math.round(propRevenue).toLocaleString()}/mo</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {ownerPropertiesData.length === 0 && (
+                <div style={{ background: 'white', padding: 40, borderRadius: 12, border: '1px solid #e5e7eb', textAlign: 'center' }}>
+                  <p style={{ color: '#9ca3af' }}>No properties assigned</p>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Tenants Tab */}
+          {portalTab === 'tenants' && (
+            <div>
+              <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Tenants</h2>
+              <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#f9fafb' }}>
+                      <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#6b7280' }}>Tenant</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#6b7280' }}>Property</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#6b7280' }}>Rent</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#6b7280' }}>Lease End</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#6b7280' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ownerTenantsData.map(tenant => {
+                      const prop = ownerPropertiesData.find(p => p.id === tenant.property_id);
+                      return (
+                        <tr key={tenant.id} style={{ borderTop: '1px solid #e5e7eb' }}>
+                          <td style={{ padding: '12px 16px' }}>
+                            <p style={{ fontWeight: 500, margin: 0 }}>{tenant.name}</p>
+                            <p style={{ fontSize: 13, color: '#6b7280', margin: '2px 0 0' }}>{tenant.email || tenant.phone || ''}</p>
+                          </td>
+                          <td style={{ padding: '12px 16px', fontSize: 14 }}>
+                            {prop?.name || prop?.address || 'N/A'}{tenant.unit ? `, Unit ${tenant.unit}` : ''}
+                          </td>
+                          <td style={{ padding: '12px 16px', fontSize: 14, fontWeight: 500 }}>${parseFloat(tenant.rentAmount || tenant.rent || 0).toLocaleString()}/mo</td>
+                          <td style={{ padding: '12px 16px', fontSize: 14 }}>{tenant.leaseEnd || tenant.lease_end || 'MTM'}</td>
+                          <td style={{ padding: '12px 16px' }}>
+                            <span style={{
+                              padding: '4px 10px',
+                              borderRadius: 12,
+                              fontSize: 12,
+                              fontWeight: 500,
+                              background: tenant.status === 'Current' || tenant.status === 'current' ? '#d1fae5' : tenant.status === 'Late' || tenant.status === 'late' ? '#fee2e2' : '#f3f4f6',
+                              color: tenant.status === 'Current' || tenant.status === 'current' ? '#065f46' : tenant.status === 'Late' || tenant.status === 'late' ? '#991b1b' : '#6b7280'
+                            }}>
+                              {tenant.status}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {ownerTenantsData.length === 0 && (
+                  <p style={{ padding: 24, textAlign: 'center', color: '#9ca3af' }}>No tenants found</p>
+                )}
+              </div>
+            </div>
+          )}
+          
+          {/* Statements Tab */}
+          {portalTab === 'statements' && (
+            <div>
+              <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Statements & Distributions</h2>
+              <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#f9fafb' }}>
+                      <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#6b7280' }}>Period</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#6b7280' }}>Amount</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#6b7280' }}>Status</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 13, fontWeight: 600, color: '#6b7280' }}>Payment Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ownerDistributionsData.map(dist => (
+                      <tr key={dist.id} style={{ borderTop: '1px solid #e5e7eb' }}>
+                        <td style={{ padding: '12px 16px', fontWeight: 500 }}>
+                          {dist.period_start ? new Date(dist.period_start).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : 'N/A'}
+                        </td>
+                        <td style={{ padding: '12px 16px', fontSize: 16, fontWeight: 600, color: '#059669' }}>
+                          ${parseFloat(dist.amount || 0).toLocaleString()}
+                        </td>
+                        <td style={{ padding: '12px 16px' }}>
+                          <span style={{
+                            padding: '4px 10px',
+                            borderRadius: 12,
+                            fontSize: 12,
+                            fontWeight: 500,
+                            background: dist.status === 'paid' ? '#d1fae5' : '#fef3c7',
+                            color: dist.status === 'paid' ? '#065f46' : '#92400e'
+                          }}>
+                            {dist.status === 'paid' ? 'Paid' : 'Pending'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 16px', fontSize: 14 }}>
+                          {dist.payment_date ? new Date(dist.payment_date).toLocaleDateString() : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {ownerDistributionsData.length === 0 && (
+                  <p style={{ padding: 24, textAlign: 'center', color: '#9ca3af' }}>No statements yet</p>
+                )}
+              </div>
+            </div>
+          )}
+          
+        </div>
+        
+        {/* Footer */}
+        <footer style={{ padding: 24, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
+          <p>Propli Owner Portal • Questions? Contact your property manager.</p>
+        </footer>
+      </div>
+    );
+  };
+
   // Check if we're on the tenant portal route
   useEffect(() => {
     if (window.location.pathname === '/tenant-portal') {
       // Tenant portal handles its own routing
     }
   }, []);
+
+  // Show owner portal if on that route
+  const isOwnerPortal = window.location.pathname === '/owner-portal';
+  if (isOwnerPortal) {
+    // Owner Dashboard
+    if (ownerPortalView === 'dashboard' && portalOwner) {
+      return <OwnerPortalDashboard owner={portalOwner} onLogout={handleOwnerPortalLogout} />;
+    }
+    
+    // Owner Login Page
+    return (
+      <div style={{ 
+        minHeight: '100vh', 
+        background: 'linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 20
+      }}>
+        <div style={{
+          background: 'white',
+          borderRadius: 16,
+          padding: 40,
+          width: '100%',
+          maxWidth: 420,
+          boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+        }}>
+          {/* Logo */}
+          <div style={{ textAlign: 'center', marginBottom: 32 }}>
+            <div style={{ fontSize: 48, marginBottom: 8 }}>🏠</div>
+            <h1 style={{ fontSize: 28, fontWeight: 700, color: '#1a73e8', margin: 0 }}>Propli</h1>
+            <p style={{ color: '#6b7280', marginTop: 8 }}>Owner Portal</p>
+          </div>
+          
+          {/* Login Form */}
+          <form onSubmit={handleOwnerPortalLogin}>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ display: 'block', fontSize: 14, fontWeight: 500, marginBottom: 6, color: '#374151' }}>
+                Email Address
+              </label>
+              <input
+                type="email"
+                value={portalEmail}
+                onChange={(e) => setPortalEmail(e.target.value)}
+                placeholder="your@email.com"
+                required
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: 8,
+                  fontSize: 16,
+                  outline: 'none',
+                  transition: 'border-color 0.2s'
+                }}
+                onFocus={(e) => e.target.style.borderColor = '#1a73e8'}
+                onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
+              />
+            </div>
+            
+            {portalError && (
+              <div style={{
+                padding: 12,
+                background: '#fee2e2',
+                color: '#991b1b',
+                borderRadius: 8,
+                fontSize: 14,
+                marginBottom: 20
+              }}>
+                {portalError}
+              </div>
+            )}
+            
+            <button
+              type="submit"
+              disabled={portalLoading}
+              style={{
+                width: '100%',
+                padding: '14px 20px',
+                background: '#1a73e8',
+                color: 'white',
+                border: 'none',
+                borderRadius: 8,
+                fontSize: 16,
+                fontWeight: 600,
+                cursor: portalLoading ? 'not-allowed' : 'pointer',
+                opacity: portalLoading ? 0.7 : 1
+              }}
+            >
+              {portalLoading ? 'Signing in...' : 'Sign In'}
+            </button>
+          </form>
+          
+          <p style={{ textAlign: 'center', marginTop: 24, fontSize: 14, color: '#6b7280' }}>
+            Don't have access? Contact your property manager.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   // Show tenant portal if on that route
   if (window.location.pathname === '/tenant-portal') {
