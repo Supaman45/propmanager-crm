@@ -372,6 +372,9 @@ function App() {
   const [selectedOwner, setSelectedOwner] = useState(null);
   const [showAddOwnerModal, setShowAddOwnerModal] = useState(false);
   const [showEditOwnerModal, setShowEditOwnerModal] = useState(false);
+  const [showOwnerDetailModal, setShowOwnerDetailModal] = useState(false);
+  const [showAssignPropertyModal, setShowAssignPropertyModal] = useState(false);
+  const [showOwnerStatementModal, setShowOwnerStatementModal] = useState(false);
   const [newOwner, setNewOwner] = useState({
     name: '',
     email: '',
@@ -379,6 +382,14 @@ function App() {
     address: '',
     managementFeePercent: 10,
     portalEnabled: false
+  });
+  const [ownerProperties, setOwnerProperties] = useState([]);
+  const [ownerDistributions, setOwnerDistributions] = useState([]);
+  const [assignPropertyId, setAssignPropertyId] = useState('');
+  const [assignOwnershipPct, setAssignOwnershipPct] = useState('100');
+  const [statementPeriod, setStatementPeriod] = useState({
+    start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
+    end: new Date().toISOString().split('T')[0]
   });
   
   // CSV Import state
@@ -1447,6 +1458,8 @@ function App() {
       if (session && currentUser) {
         loadData(currentUser);
         loadTwilioSettings();
+        loadOwnerProperties();
+        loadOwnerDistributions();
       } else {
         setLoading(false);
       }
@@ -1461,10 +1474,14 @@ function App() {
       if (session && currentUser) {
         loadData(currentUser);
         loadTwilioSettings();
+        loadOwnerProperties();
+        loadOwnerDistributions();
       } else {
         setTenants([]);
         setProperties([]);
         setMaintenanceRequests([]);
+        setOwnerProperties([]);
+        setOwnerDistributions([]);
         setLoading(false);
       }
     });
@@ -3715,6 +3732,221 @@ function App() {
     const subject = encodeURIComponent('Owner Portal Access - Propli');
     const body = encodeURIComponent(`Hello ${owner.name},\n\nYou now have access to the Propli Owner Portal. Click the link below to access your account:\n\n${link}\n\nBest regards,\nPropli Team`);
     window.location.href = `mailto:${owner.email}?subject=${subject}&body=${body}`;
+  };
+
+  // Load owner properties from junction table
+  const loadOwnerProperties = async () => {
+    try {
+      const { data, error } = await supabase.from('owner_properties').select('*');
+      if (error) {
+        console.error('Error loading owner_properties:', error);
+        setOwnerProperties([]);
+        return;
+      }
+      setOwnerProperties(data || []);
+    } catch (err) {
+      console.error('Error loading owner_properties:', err);
+      setOwnerProperties([]);
+    }
+  };
+
+  // Load owner distributions
+  const loadOwnerDistributions = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('owner_distributions')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.error('Error loading owner_distributions:', error);
+        setOwnerDistributions([]);
+        return;
+      }
+      setOwnerDistributions(data || []);
+    } catch (err) {
+      console.error('Error loading owner_distributions:', err);
+      setOwnerDistributions([]);
+    }
+  };
+
+  // Get properties for a specific owner (using junction table)
+  const getOwnerPropertiesById = (ownerId) => {
+    const ownerPropIds = ownerProperties
+      .filter(op => op.owner_id === ownerId)
+      .map(op => ({ propertyId: op.property_id, ownership_percentage: op.ownership_percentage }));
+    
+    return ownerPropIds.map(op => {
+      const property = properties.find(p => p.id === op.propertyId);
+      return property ? { ...property, ownership_percentage: op.ownership_percentage } : null;
+    }).filter(Boolean);
+  };
+
+  // Get total revenue for owner
+  const getOwnerRevenue = (ownerId) => {
+    const ownerProps = getOwnerPropertiesById(ownerId);
+    
+    let totalRevenue = 0;
+    ownerProps.forEach(prop => {
+      // Find all current tenants in this property
+      // Check both property_id (numeric) and property (string address) fields
+      const propTenants = tenants.filter(t => {
+        const matchesProperty = t.property_id === prop.id || 
+                                (t.property && prop.address && t.property.includes(prop.address)) ||
+                                (t.property && prop.name && t.property.includes(prop.name));
+        const isCurrent = (t.status === 'Current' || t.status === 'current' || t.status === 'Late' || t.status === 'late');
+        return matchesProperty && isCurrent;
+      });
+      
+      // Sum their rent (check both rentAmount and rent fields)
+      const propRent = propTenants.reduce((sum, t) => {
+        const rent = parseFloat(t.rentAmount || t.rent || 0);
+        return sum + rent;
+      }, 0);
+      
+      // Apply ownership percentage
+      const ownerShare = propRent * ((prop.ownership_percentage || 100) / 100);
+      totalRevenue += ownerShare;
+    });
+    
+    return Math.round(totalRevenue);
+  };
+
+  // Get pending distribution amount for owner
+  const getPendingDistribution = (ownerId) => {
+    const revenue = getOwnerRevenue(ownerId);
+    const owner = owners.find(o => o.id === ownerId);
+    const managementFee = owner?.managementFeePercent || 10;
+    return Math.round(revenue * (100 - managementFee) / 100);
+  };
+
+  // Get distributions for owner
+  const getOwnerDistributionsById = (ownerId) => {
+    return ownerDistributions.filter(d => d.owner_id === ownerId);
+  };
+
+  // Assign property to owner
+  const assignPropertyToOwner = async () => {
+    if (!assignPropertyId || !selectedOwner) {
+      showToast('Please select a property', 'error');
+      return;
+    }
+    
+    try {
+      const { error } = await supabase.from('owner_properties').insert({
+        owner_id: selectedOwner.id,
+        property_id: parseInt(assignPropertyId),
+        ownership_percentage: parseFloat(assignOwnershipPct) || 100
+      });
+      
+      if (error) throw error;
+      
+      await loadOwnerProperties();
+      setShowAssignPropertyModal(false);
+      setAssignPropertyId('');
+      setAssignOwnershipPct('100');
+      showToast('Property assigned successfully', 'success');
+    } catch (err) {
+      console.error('Failed to assign property:', err);
+      showToast('Failed to assign property: ' + (err.message || 'Unknown error'), 'error');
+    }
+  };
+
+  // Unassign property from owner
+  const unassignProperty = async (ownerId, propertyId) => {
+    if (!confirm('Remove this property from the owner?')) return;
+    
+    try {
+      const { error } = await supabase
+        .from('owner_properties')
+        .delete()
+        .eq('owner_id', ownerId)
+        .eq('property_id', propertyId);
+      
+      if (error) throw error;
+      
+      await loadOwnerProperties();
+      showToast('Property removed from owner', 'success');
+    } catch (err) {
+      console.error('Failed to unassign property:', err);
+      showToast('Failed to remove property: ' + (err.message || 'Unknown error'), 'error');
+    }
+  };
+
+  // Toggle owner portal access
+  const toggleOwnerPortal = async (owner) => {
+    try {
+      const newStatus = !owner.portalEnabled;
+      
+      // If enabling, generate a portal token
+      const updates = {
+        portal_enabled: newStatus,
+        portal_token: newStatus ? crypto.randomUUID() : null
+      };
+      
+      const { data, error } = await supabase
+        .from('owners')
+        .update(updates)
+        .eq('id', owner.id)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      setOwners(owners.map(o => o.id === owner.id ? transformOwner(data) : o));
+      if (selectedOwner && selectedOwner.id === owner.id) {
+        setSelectedOwner(transformOwner(data));
+      }
+      
+      if (newStatus) {
+        showToast(`Portal enabled for ${owner.name}. They can now log in.`, 'success');
+      } else {
+        showToast(`Portal disabled for ${owner.name}`, 'success');
+      }
+    } catch (err) {
+      console.error('Failed to toggle portal:', err);
+      showToast('Failed to update portal access', 'error');
+    }
+  };
+
+  // Open owner detail modal
+  const openOwnerDetail = (owner) => {
+    setSelectedOwner(owner);
+    setShowOwnerDetailModal(true);
+  };
+
+  // Open owner statement modal
+  const openOwnerStatement = (owner) => {
+    setSelectedOwner(owner);
+    setStatementPeriod({
+      start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
+      end: new Date().toISOString().split('T')[0]
+    });
+    setShowOwnerStatementModal(true);
+  };
+
+  // Record distribution payment
+  const recordDistribution = async (owner) => {
+    try {
+      const amount = getPendingDistribution(owner.id);
+      
+      const { error } = await supabase.from('owner_distributions').insert({
+        owner_id: owner.id,
+        amount: amount,
+        period_start: statementPeriod.start,
+        period_end: statementPeriod.end,
+        status: 'pending',
+        created_at: new Date().toISOString()
+      });
+      
+      if (error) throw error;
+      
+      await loadOwnerDistributions();
+      showToast(`Distribution of $${amount.toLocaleString()} recorded`, 'success');
+      setShowOwnerStatementModal(false);
+    } catch (err) {
+      console.error('Failed to record distribution:', err);
+      showToast('Failed to record distribution', 'error');
+    }
   };
 
   const handleAddExpense = async (propertyId, e) => {
@@ -7669,151 +7901,170 @@ function App() {
               )}
 
               {activeTab === 'owners' && (
-                <div className="content-section">
-                  {/* Header */}
-                  <div style={{ marginBottom: '24px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                      <div>
-                        <h1 style={{ fontSize: '32px', fontWeight: '400', color: '#202124', margin: '0 0 8px 0' }}>Owners</h1>
-                        <p style={{ fontSize: '14px', color: '#5f6368', margin: 0 }}>Manage property owners and statements</p>
-                      </div>
+                <div style={{ padding: 24 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+                    <div>
+                      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 4 }}>Property Owners</h1>
+                      <p style={{ color: '#6b7280' }}>Manage owners, statements, and portal access</p>
+                    </div>
+                    <button 
+                      className='btn-primary' 
+                      onClick={() => {
+                        setNewOwner({ name: '', email: '', phone: '', address: '', managementFeePercent: 10, portalEnabled: false });
+                        setShowAddOwnerModal(true);
+                      }}
+                    >
+                      + Add Owner
+                    </button>
+                  </div>
+                  
+                  {/* Owner Cards */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 20 }}>
+                    {owners.map(owner => {
+                      const ownerProps = getOwnerPropertiesById(owner.id);
+                      const totalRevenue = getOwnerRevenue(owner.id);
+                      const pendingDistribution = getPendingDistribution(owner.id);
+                      
+                      return (
+                        <div
+                          key={owner.id}
+                          style={{
+                            background: 'white',
+                            borderRadius: 12,
+                            border: '1px solid #e5e7eb',
+                            overflow: 'hidden'
+                          }}
+                        >
+                          {/* Owner Header */}
+                          <div style={{ padding: 20, borderBottom: '1px solid #f3f4f6' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                              <div style={{
+                                width: 56,
+                                height: 56,
+                                borderRadius: 12,
+                                background: '#e8f0fe',
+                                color: '#1a73e8',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontWeight: 700,
+                                fontSize: 20
+                              }}>
+                                {owner.name?.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <h3 style={{ fontWeight: 600, fontSize: 18, margin: 0 }}>{owner.name}</h3>
+                                <p style={{ color: '#6b7280', fontSize: 14, margin: '4px 0 0' }}>{owner.email}</p>
+                              </div>
+                              <div style={{
+                                padding: '4px 12px',
+                                borderRadius: 20,
+                                fontSize: 12,
+                                fontWeight: 500,
+                                background: owner.portalEnabled ? '#d1fae5' : '#f3f4f6',
+                                color: owner.portalEnabled ? '#065f46' : '#6b7280'
+                              }}>
+                                {owner.portalEnabled ? '🟢 Portal Active' : 'Portal Inactive'}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Stats */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', borderBottom: '1px solid #f3f4f6' }}>
+                            <div style={{ padding: 16, textAlign: 'center', borderRight: '1px solid #f3f4f6' }}>
+                              <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Properties</p>
+                              <p style={{ fontSize: 20, fontWeight: 700, margin: '4px 0 0', color: '#1a73e8' }}>{ownerProps.length}</p>
+                            </div>
+                            <div style={{ padding: 16, textAlign: 'center', borderRight: '1px solid #f3f4f6' }}>
+                              <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Monthly Revenue</p>
+                              <p style={{ fontSize: 20, fontWeight: 700, margin: '4px 0 0', color: '#10b981' }}>${totalRevenue.toLocaleString()}</p>
+                            </div>
+                            <div style={{ padding: 16, textAlign: 'center' }}>
+                              <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Pending Payout</p>
+                              <p style={{ fontSize: 20, fontWeight: 700, margin: '4px 0 0', color: '#f59e0b' }}>${pendingDistribution.toLocaleString()}</p>
+                            </div>
+                          </div>
+                          
+                          {/* Properties List */}
+                          <div style={{ padding: 16 }}>
+                            <p style={{ fontSize: 12, color: '#6b7280', textTransform: 'uppercase', marginBottom: 8 }}>Properties</p>
+                            {ownerProps.length > 0 ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {ownerProps.slice(0, 3).map(prop => (
+                                  <div key={prop.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 14 }}>
+                                    <span>{prop.name || prop.address}</span>
+                                    <span style={{ color: '#6b7280' }}>{prop.ownership_percentage || 100}%</span>
+                                  </div>
+                                ))}
+                                {ownerProps.length > 3 && (
+                                  <p style={{ fontSize: 13, color: '#1a73e8', margin: 0 }}>+{ownerProps.length - 3} more</p>
+                                )}
+                              </div>
+                            ) : (
+                              <p style={{ fontSize: 14, color: '#9ca3af' }}>No properties assigned</p>
+                            )}
+                          </div>
+                          
+                          {/* Actions */}
+                          <div style={{ padding: 16, borderTop: '1px solid #f3f4f6', display: 'flex', gap: 8 }}>
+                            <button
+                              onClick={() => openOwnerDetail(owner)}
+                              className='btn-secondary'
+                              style={{ flex: 1, fontSize: 13 }}
+                            >
+                              View Details
+                            </button>
+                            <button
+                              onClick={() => openOwnerStatement(owner)}
+                              className='btn-secondary'
+                              style={{ flex: 1, fontSize: 13 }}
+                            >
+                              📄 Statement
+                            </button>
+                            <button
+                              onClick={() => toggleOwnerPortal(owner)}
+                              style={{
+                                flex: 1,
+                                fontSize: 13,
+                                padding: '8px 12px',
+                                border: '1px solid #e5e7eb',
+                                borderRadius: 6,
+                                background: owner.portalEnabled ? '#fee2e2' : '#d1fae5',
+                                color: owner.portalEnabled ? '#991b1b' : '#065f46',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {owner.portalEnabled ? 'Disable Portal' : 'Enable Portal'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  
+                  {/* Empty State */}
+                  {owners.length === 0 && (
+                    <div style={{ 
+                      textAlign: 'center', 
+                      padding: 60, 
+                      background: 'white', 
+                      borderRadius: 12, 
+                      border: '1px solid #e5e7eb' 
+                    }}>
+                      <div style={{ fontSize: 48, marginBottom: 16 }}>👤</div>
+                      <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>No owners yet</h3>
+                      <p style={{ color: '#6b7280', marginBottom: 20 }}>Add property owners to manage their statements and portal access</p>
                       <button 
-                        className="btn-primary" 
+                        className='btn-primary'
                         onClick={() => {
-                          console.log('Add Owner clicked');
                           setNewOwner({ name: '', email: '', phone: '', address: '', managementFeePercent: 10, portalEnabled: false });
                           setShowAddOwnerModal(true);
                         }}
-                        style={{
-                          background: '#1a73e8',
-                          color: '#fff',
-                          border: 'none',
-                          borderRadius: '4px',
-                          padding: '10px 24px',
-                          fontSize: '14px',
-                          fontWeight: '500',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px'
-                        }}
                       >
-                        + Add Owner
+                        + Add First Owner
                       </button>
                     </div>
-                  </div>
-
-                  {/* Owners Table */}
-                  <div style={{ background: '#fff', borderRadius: '8px', border: '1px solid #dadce0', overflow: 'hidden' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr style={{ background: '#f8f9fa', borderBottom: '1px solid #dadce0' }}>
-                          <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '14px', fontWeight: '500', color: '#5f6368' }}>Owner Name</th>
-                          <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '14px', fontWeight: '500', color: '#5f6368' }}>Email</th>
-                          <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '14px', fontWeight: '500', color: '#5f6368' }}>Properties</th>
-                          <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '14px', fontWeight: '500', color: '#5f6368' }}>Portal Status</th>
-                          <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '14px', fontWeight: '500', color: '#5f6368' }}>Last Login</th>
-                          <th style={{ padding: '12px 16px', textAlign: 'right', fontSize: '14px', fontWeight: '500', color: '#5f6368' }}>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {owners.map(owner => {
-                          const ownerProperties = properties.filter(p => p.ownerId === owner.id);
-                          return (
-                            <tr
-                              key={owner.id}
-                              style={{
-                                borderBottom: '1px solid #e5e7eb',
-                                cursor: 'pointer'
-                              }}
-                              onClick={() => setSelectedOwner(owner)}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.background = '#f9fafb';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.background = '#fff';
-                              }}
-                            >
-                              <td style={{ padding: '12px 16px' }}>
-                                <div style={{ fontSize: '14px', fontWeight: '500', color: '#202124' }}>{owner.name}</div>
-                                {owner.phone && (
-                                  <div style={{ fontSize: '12px', color: '#5f6368', marginTop: '2px' }}>{owner.phone}</div>
-                                )}
-                              </td>
-                              <td style={{ padding: '12px 16px', fontSize: '14px', color: '#202124' }}>{owner.email}</td>
-                              <td style={{ padding: '12px 16px', textAlign: 'right', fontSize: '14px', color: '#202124' }}>{ownerProperties.length}</td>
-                              <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                                <span
-                                  style={{
-                                    fontSize: '12px',
-                                    padding: '4px 12px',
-                                    borderRadius: '12px',
-                                    fontWeight: '500',
-                                    display: 'inline-block',
-                                    background: owner.portalEnabled ? '#dcfce7' : '#f3f4f6',
-                                    color: owner.portalEnabled ? '#166534' : '#6b7280'
-                                  }}
-                                >
-                                  {owner.portalEnabled ? 'Active' : 'Inactive'}
-                                </span>
-                              </td>
-                              <td style={{ padding: '12px 16px', fontSize: '14px', color: '#5f6368' }}>
-                                {owner.lastLogin ? new Date(owner.lastLogin).toLocaleDateString() : 'Never'}
-                              </td>
-                              <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }} onClick={(e) => e.stopPropagation()}>
-                                  <button
-                                    className="btn-secondary"
-                                    onClick={() => {
-                                      setSelectedOwner(owner);
-                                      setShowEditOwnerModal(true);
-                                    }}
-                                    style={{
-                                      padding: '6px 12px',
-                                      fontSize: '12px',
-                                      border: '1px solid #dadce0',
-                                      borderRadius: '4px',
-                                      background: '#fff',
-                                      cursor: 'pointer'
-                                    }}
-                                  >
-                                    View
-                                  </button>
-                                  {owner.portalEnabled && (
-                                    <button
-                                      className="btn-secondary"
-                                      onClick={() => {
-                                        const link = getOwnerPortalLink(owner);
-                                        navigator.clipboard.writeText(link);
-                                        alert('Portal link copied to clipboard!');
-                                      }}
-                                      style={{
-                                        padding: '6px 12px',
-                                        fontSize: '12px',
-                                        border: '1px solid #dadce0',
-                                        borderRadius: '4px',
-                                        background: '#fff',
-                                        cursor: 'pointer'
-                                      }}
-                                    >
-                                      Copy Link
-                                    </button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                        {owners.length === 0 && (
-                          <tr>
-                            <td colSpan="6" style={{ padding: '40px', textAlign: 'center', color: '#5f6368' }}>
-                              No owners found. Click '+ Add Owner' to get started.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+                  )}
                 </div>
               )}
 
@@ -13020,156 +13271,403 @@ function App() {
         </div>
       )}
 
-      {/* Owner Detail Modal */}
-      {selectedOwner && !showEditOwnerModal && (
-        <div className="modal-overlay" onClick={() => setSelectedOwner(null)}>
-          <div className="modal tenant-detail-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header modal-header-fixed">
-              <div className="modal-header-content">
-                <h2>{selectedOwner.name}</h2>
-              </div>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <button
-                  className="btn-secondary"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowEditOwnerModal(true);
-                  }}
-                  style={{
-                    padding: '6px 12px',
-                    fontSize: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px'
-                  }}
-                >
-                  Edit
-                </button>
-                <button className="close-btn" onClick={() => setSelectedOwner(null)}>×</button>
-              </div>
+      {/* Owner Detail Modal with Portal Management */}
+      {showOwnerDetailModal && selectedOwner && (
+        <div className='panel-overlay' onClick={() => setShowOwnerDetailModal(false)}>
+          <div className='slide-panel' onClick={e => e.stopPropagation()} style={{ width: 500 }}>
+            <div className='panel-header'>
+              <h2>Owner Details</h2>
+              <button className='close-btn' onClick={() => setShowOwnerDetailModal(false)}>×</button>
             </div>
-            <div className="tenant-detail-view modal-content-scrollable">
-              <div className="detail-section">
-                <h4>Owner Information</h4>
-                <div className="property-info-grid">
-                  <div className="info-item">
-                    <span className="info-label">Email: </span>
-                    <span className="info-value">{selectedOwner.email}</span>
-                  </div>
-                  {selectedOwner.phone && (
-                    <div className="info-item">
-                      <span className="info-label">Phone: </span>
-                      <span className="info-value">{selectedOwner.phone}</span>
-                    </div>
-                  )}
-                  {selectedOwner.address && (
-                    <div className="info-item">
-                      <span className="info-label">Address: </span>
-                      <span className="info-value">{selectedOwner.address}</span>
-                    </div>
-                  )}
-                  <div className="info-item">
-                    <span className="info-label">Management Fee: </span>
-                    <span className="info-value">{selectedOwner.managementFeePercent}%</span>
-                  </div>
+            
+            <div className='panel-body' style={{ padding: 24 }}>
+              {/* Owner Info */}
+              <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                <div style={{
+                  width: 80,
+                  height: 80,
+                  borderRadius: 16,
+                  background: '#e8f0fe',
+                  color: '#1a73e8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 700,
+                  fontSize: 28,
+                  margin: '0 auto 16px'
+                }}>
+                  {selectedOwner.name?.split(' ').map(n => n[0]).join('').slice(0, 2)}
                 </div>
+                <h3 style={{ fontSize: 20, fontWeight: 600, margin: '0 0 4px' }}>{selectedOwner.name}</h3>
+                <p style={{ color: '#6b7280', margin: 0 }}>{selectedOwner.email}</p>
+                {selectedOwner.phone && <p style={{ color: '#6b7280', margin: '4px 0 0' }}>{selectedOwner.phone}</p>}
               </div>
-
-              <div className="section-divider"></div>
-
-              <div className="detail-section">
-                <h4>Properties</h4>
-                {properties.filter(p => p.ownerId === selectedOwner.id).length > 0 ? (
-                  <div className="property-tenants-list">
-                    {properties
-                      .filter(p => p.ownerId === selectedOwner.id)
-                      .map(property => (
-                        <div key={property.id} className="property-tenant-card">
-                          <div className="property-tenant-card-header">
-                            <div>
-                              <h4 style={{ margin: 0, marginBottom: '4px', fontSize: '16px', fontWeight: '500' }}>{property.address}</h4>
-                              <p style={{ margin: 0, fontSize: '14px', color: '#5f6368' }}>{property.type || 'Property'}</p>
-                            </div>
-                          </div>
-                          <div className="property-tenant-card-details">
-                            <div className="property-tenant-detail-item">
-                              <span className="property-tenant-label">Units:</span>
-                              <span className="property-tenant-value">{property.units}</span>
-                            </div>
-                            <div className="property-tenant-detail-item">
-                              <span className="property-tenant-label">Monthly Revenue:</span>
-                              <span className="property-tenant-value">${property.monthlyRevenue.toLocaleString()}</span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+              
+              {/* Portal Status */}
+              <div style={{ background: '#f9fafb', padding: 16, borderRadius: 8, marginBottom: 24 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <p style={{ fontWeight: 600, margin: 0 }}>Owner Portal</p>
+                    <p style={{ fontSize: 13, color: '#6b7280', margin: '4px 0 0' }}>
+                      {selectedOwner.portalEnabled ? 'Owner can log in to view their properties' : 'Portal access is disabled'}
+                    </p>
                   </div>
-                ) : (
-                  <p style={{ color: '#5f6368', fontSize: '14px' }}>No properties assigned to this owner.</p>
+                  <button
+                    onClick={() => toggleOwnerPortal(selectedOwner)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 6,
+                      border: 'none',
+                      background: selectedOwner.portalEnabled ? '#fee2e2' : '#d1fae5',
+                      color: selectedOwner.portalEnabled ? '#991b1b' : '#065f46',
+                      cursor: 'pointer',
+                      fontWeight: 500
+                    }}
+                  >
+                    {selectedOwner.portalEnabled ? 'Disable' : 'Enable'}
+                  </button>
+                </div>
+                
+                {selectedOwner.portalEnabled && (
+                  <div style={{ marginTop: 12, padding: 12, background: 'white', borderRadius: 6 }}>
+                    <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 4px' }}>Portal Login URL</p>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        type='text'
+                        readOnly
+                        value={`${window.location.origin}/owner-portal`}
+                        style={{ flex: 1, padding: 8, border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 13 }}
+                      />
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(`${window.location.origin}/owner-portal`);
+                          showToast('Link copied!', 'success');
+                        }}
+                        className='btn-secondary'
+                        style={{ fontSize: 13 }}
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
-
-              <div className="section-divider"></div>
-
-              <div className="detail-section">
-                <h4>Portal Access</h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div>
-                      <div style={{ fontSize: '14px', fontWeight: '500', color: '#202124', marginBottom: '4px' }}>Owner Portal</div>
-                      <div style={{ fontSize: '12px', color: '#5f6368' }}>
-                        {selectedOwner.portalEnabled ? 'Portal is enabled' : 'Portal is disabled'}
-                      </div>
-                    </div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedOwner.portalEnabled}
-                        onChange={e => handleToggleOwnerPortal(selectedOwner.id, e.target.checked)}
-                        style={{ cursor: 'pointer' }}
-                      />
-                      <span style={{ fontSize: '14px', color: '#202124' }}>Enable</span>
-                    </label>
-                  </div>
-                  {selectedOwner.portalEnabled && (
-                    <>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                          className="btn-secondary"
-                          onClick={() => {
-                            const link = getOwnerPortalLink(selectedOwner);
-                            navigator.clipboard.writeText(link);
-                            alert('Portal link copied to clipboard!');
-                          }}
-                          style={{
-                            flex: 1,
-                            padding: '8px 16px',
-                            fontSize: '14px'
-                          }}
-                        >
-                          Copy Portal Link
-                        </button>
-                        <button
-                          className="btn-primary"
-                          onClick={() => sendOwnerPortalInvite(selectedOwner)}
-                          style={{
-                            flex: 1,
-                            padding: '8px 16px',
-                            fontSize: '14px'
-                          }}
-                        >
-                          Send Portal Invite
-                        </button>
-                      </div>
-                      {selectedOwner.lastLogin && (
-                        <div style={{ fontSize: '12px', color: '#5f6368' }}>
-                          Last login: {new Date(selectedOwner.lastLogin).toLocaleString()}
+              
+              {/* Assigned Properties */}
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <p style={{ fontSize: 12, color: '#6b7280', textTransform: 'uppercase', margin: 0 }}>Assigned Properties</p>
+                  <span
+                    onClick={() => setShowAssignPropertyModal(true)}
+                    style={{ 
+                      color: '#1a73e8', 
+                      cursor: 'pointer', 
+                      fontSize: 14,
+                      fontWeight: 500
+                    }}
+                  >
+                    + Assign Property
+                  </span>
+                </div>
+                
+                {getOwnerPropertiesById(selectedOwner.id).length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {getOwnerPropertiesById(selectedOwner.id).map(prop => (
+                      <div
+                        key={prop.id}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: 12,
+                          background: '#f9fafb',
+                          borderRadius: 8
+                        }}
+                      >
+                        <div>
+                          <p style={{ fontWeight: 500, margin: 0 }}>{prop.name || prop.address}</p>
+                          <p style={{ fontSize: 13, color: '#6b7280', margin: '2px 0 0' }}>
+                            {prop.type || 'Property'} • {prop.units || 1} units
+                          </p>
                         </div>
-                      )}
-                    </>
-                  )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: '#1a73e8' }}>
+                            {prop.ownership_percentage || 100}%
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              unassignProperty(selectedOwner.id, prop.id);
+                            }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: '#dc2626',
+                              cursor: 'pointer',
+                              fontSize: 18,
+                              padding: '4px 8px',
+                              borderRadius: 4,
+                              lineHeight: 1
+                            }}
+                            onMouseEnter={(e) => e.target.style.background = '#fee2e2'}
+                            onMouseLeave={(e) => e.target.style.background = 'none'}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ color: '#9ca3af', fontSize: 14 }}>No properties assigned to this owner</p>
+                )}
+              </div>
+              
+              {/* Financial Summary */}
+              <div style={{ marginBottom: 24 }}>
+                <p style={{ fontSize: 12, color: '#6b7280', textTransform: 'uppercase', marginBottom: 12 }}>Financial Summary</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div style={{ background: '#f0fdf4', padding: 16, borderRadius: 8 }}>
+                    <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Total Monthly Revenue</p>
+                    <p style={{ fontSize: 24, fontWeight: 700, color: '#10b981', margin: '4px 0 0' }}>
+                      ${getOwnerRevenue(selectedOwner.id).toLocaleString()}
+                    </p>
+                  </div>
+                  <div style={{ background: '#fef3c7', padding: 16, borderRadius: 8 }}>
+                    <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>Management Fee ({selectedOwner.managementFeePercent || 10}%)</p>
+                    <p style={{ fontSize: 24, fontWeight: 700, color: '#f59e0b', margin: '4px 0 0' }}>
+                      ${Math.round(getOwnerRevenue(selectedOwner.id) * (selectedOwner.managementFeePercent || 10) / 100).toLocaleString()}
+                    </p>
+                  </div>
                 </div>
               </div>
+              
+              {/* Recent Distributions */}
+              <div>
+                <p style={{ fontSize: 12, color: '#6b7280', textTransform: 'uppercase', marginBottom: 12 }}>Recent Distributions</p>
+                {getOwnerDistributionsById(selectedOwner.id).length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {getOwnerDistributionsById(selectedOwner.id).slice(0, 5).map(dist => (
+                      <div
+                        key={dist.id}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: 12,
+                          background: '#f9fafb',
+                          borderRadius: 8
+                        }}
+                      >
+                        <div>
+                          <p style={{ fontWeight: 500, margin: 0 }}>
+                            {new Date(dist.period_start).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                          </p>
+                          <p style={{ fontSize: 12, color: '#6b7280', margin: '2px 0 0' }}>
+                            {dist.status === 'paid' ? `Paid ${new Date(dist.payment_date).toLocaleDateString()}` : 'Pending'}
+                          </p>
+                        </div>
+                        <span style={{
+                          fontWeight: 600,
+                          color: dist.status === 'paid' ? '#10b981' : '#f59e0b'
+                        }}>
+                          ${parseFloat(dist.amount).toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ color: '#9ca3af', fontSize: 14 }}>No distributions yet</p>
+                )}
+              </div>
+            </div>
+            
+            <div className='panel-footer' style={{ padding: 16, borderTop: '1px solid #e5e7eb', display: 'flex', gap: 12 }}>
+              <button className='btn-secondary' onClick={() => setShowOwnerDetailModal(false)} style={{ flex: 1 }}>Close</button>
+              <button className='btn-primary' onClick={() => openOwnerStatement(selectedOwner)} style={{ flex: 1 }}>
+                Generate Statement
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Property Modal */}
+      {showAssignPropertyModal && selectedOwner && (
+        <div className='modal-overlay' onClick={() => setShowAssignPropertyModal(false)} style={{ zIndex: 1100 }}>
+          <div className='modal' onClick={e => e.stopPropagation()} style={{ maxWidth: 450 }}>
+            <div className='modal-header'>
+              <h2>Assign Property to {selectedOwner.name}</h2>
+              <button className='close-btn' onClick={() => setShowAssignPropertyModal(false)}>×</button>
+            </div>
+            <div className='modal-body'>
+              <div className='form-group'>
+                <label className='form-label'>Select Property</label>
+                <select
+                  className='form-select'
+                  value={assignPropertyId}
+                  onChange={(e) => setAssignPropertyId(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', border: '1px solid #dadce0', borderRadius: 4, fontSize: 14 }}
+                >
+                  <option value=''>Choose a property...</option>
+                  {properties
+                    .filter(p => !getOwnerPropertiesById(selectedOwner.id).find(op => op.id === p.id))
+                    .map(p => (
+                      <option key={p.id} value={p.id}>{p.name || p.address}</option>
+                    ))
+                  }
+                </select>
+              </div>
+              
+              <div className='form-group' style={{ marginTop: 16 }}>
+                <label className='form-label'>Ownership Percentage</label>
+                <input
+                  type='number'
+                  className='form-input'
+                  placeholder='100'
+                  min='1'
+                  max='100'
+                  value={assignOwnershipPct}
+                  onChange={(e) => setAssignOwnershipPct(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', border: '1px solid #dadce0', borderRadius: 4, fontSize: 14 }}
+                />
+                <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                  Enter the percentage this owner owns (e.g., 50 for 50%)
+                </p>
+              </div>
+            </div>
+            <div className='modal-footer' style={{ padding: 16, borderTop: '1px solid #e5e7eb', display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button className='btn-secondary' onClick={() => setShowAssignPropertyModal(false)}>Cancel</button>
+              <button className='btn-primary' onClick={assignPropertyToOwner}>Assign Property</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Owner Statement Modal */}
+      {showOwnerStatementModal && selectedOwner && (
+        <div className='modal-overlay' onClick={() => setShowOwnerStatementModal(false)}>
+          <div className='modal' onClick={e => e.stopPropagation()} style={{ maxWidth: 700 }}>
+            <div className='modal-header'>
+              <h2>Owner Statement</h2>
+              <button className='close-btn' onClick={() => setShowOwnerStatementModal(false)}>×</button>
+            </div>
+            <div className='modal-body'>
+              {/* Period Selection */}
+              <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+                <div className='form-group' style={{ flex: 1 }}>
+                  <label className='form-label'>Period Start</label>
+                  <input
+                    type='date'
+                    className='form-input'
+                    value={statementPeriod.start}
+                    onChange={(e) => setStatementPeriod({ ...statementPeriod, start: e.target.value })}
+                    style={{ width: '100%', padding: '10px 12px', border: '1px solid #dadce0', borderRadius: 4, fontSize: 14 }}
+                  />
+                </div>
+                <div className='form-group' style={{ flex: 1 }}>
+                  <label className='form-label'>Period End</label>
+                  <input
+                    type='date'
+                    className='form-input'
+                    value={statementPeriod.end}
+                    onChange={(e) => setStatementPeriod({ ...statementPeriod, end: e.target.value })}
+                    style={{ width: '100%', padding: '10px 12px', border: '1px solid #dadce0', borderRadius: 4, fontSize: 14 }}
+                  />
+                </div>
+              </div>
+              
+              {/* Statement Preview */}
+              <div style={{ background: '#f9fafb', padding: 24, borderRadius: 8 }}>
+                <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                  <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Owner Statement</h3>
+                  <p style={{ color: '#6b7280', margin: 0 }}>
+                    {new Date(statementPeriod.start).toLocaleDateString()} - {new Date(statementPeriod.end).toLocaleDateString()}
+                  </p>
+                </div>
+                
+                <div style={{ marginBottom: 20 }}>
+                  <p style={{ fontSize: 12, color: '#6b7280', textTransform: 'uppercase', marginBottom: 4 }}>Owner</p>
+                  <p style={{ fontWeight: 600, margin: 0 }}>{selectedOwner.name}</p>
+                </div>
+                
+                {/* Income Section */}
+                <div style={{ marginBottom: 20 }}>
+                  <p style={{ fontSize: 12, color: '#6b7280', textTransform: 'uppercase', marginBottom: 8 }}>Income</p>
+                  <table style={{ width: '100%', fontSize: 14 }}>
+                    <tbody>
+                      {getOwnerPropertiesById(selectedOwner.id).map(prop => {
+                        // Find all current tenants in this property
+                        const propTenants = tenants.filter(t => {
+                          const matchesProperty = t.property_id === prop.id || 
+                                                  (t.property && prop.address && t.property.includes(prop.address)) ||
+                                                  (t.property && prop.name && t.property.includes(prop.name));
+                          const isCurrent = (t.status === 'Current' || t.status === 'current' || t.status === 'Late' || t.status === 'late');
+                          return matchesProperty && isCurrent;
+                        });
+                        
+                        // Sum their rent (check both rentAmount and rent fields)
+                        const propIncome = propTenants.reduce((sum, t) => {
+                          const rent = parseFloat(t.rentAmount || t.rent || 0);
+                          return sum + rent;
+                        }, 0);
+                        
+                        // Apply ownership percentage
+                        const ownerShare = Math.round(propIncome * ((prop.ownership_percentage || 100) / 100));
+                        
+                        return (
+                          <tr key={prop.id}>
+                            <td style={{ padding: '8px 0' }}>{prop.name || prop.address} ({prop.ownership_percentage || 100}%)</td>
+                            <td style={{ padding: '8px 0', textAlign: 'right' }}>${ownerShare.toLocaleString()}</td>
+                          </tr>
+                        );
+                      })}
+                      <tr style={{ fontWeight: 600, borderTop: '1px solid #e5e7eb' }}>
+                        <td style={{ padding: '12px 0' }}>Total Income</td>
+                        <td style={{ padding: '12px 0', textAlign: 'right', color: '#10b981' }}>
+                          ${getOwnerRevenue(selectedOwner.id).toLocaleString()}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                
+                {/* Deductions Section */}
+                <div style={{ marginBottom: 20 }}>
+                  <p style={{ fontSize: 12, color: '#6b7280', textTransform: 'uppercase', marginBottom: 8 }}>Deductions</p>
+                  <table style={{ width: '100%', fontSize: 14 }}>
+                    <tbody>
+                      <tr>
+                        <td style={{ padding: '8px 0' }}>Management Fee ({selectedOwner.managementFeePercent || 10}%)</td>
+                        <td style={{ padding: '8px 0', textAlign: 'right', color: '#dc2626' }}>
+                          -${Math.round(getOwnerRevenue(selectedOwner.id) * (selectedOwner.managementFeePercent || 10) / 100).toLocaleString()}
+                        </td>
+                      </tr>
+                      <tr style={{ fontWeight: 600, borderTop: '1px solid #e5e7eb' }}>
+                        <td style={{ padding: '12px 0' }}>Total Deductions</td>
+                        <td style={{ padding: '12px 0', textAlign: 'right', color: '#dc2626' }}>
+                          -${Math.round(getOwnerRevenue(selectedOwner.id) * (selectedOwner.managementFeePercent || 10) / 100).toLocaleString()}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                
+                {/* Net Distribution */}
+                <div style={{ background: '#d1fae5', padding: 16, borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 600, fontSize: 16 }}>Net Distribution</span>
+                  <span style={{ fontWeight: 700, fontSize: 24, color: '#065f46' }}>
+                    ${getPendingDistribution(selectedOwner.id).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className='modal-footer' style={{ padding: 16, borderTop: '1px solid #e5e7eb', display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button className='btn-secondary' onClick={() => setShowOwnerStatementModal(false)}>Close</button>
+              <button className='btn-secondary'>📄 Download PDF</button>
+              <button className='btn-primary' onClick={() => recordDistribution(selectedOwner)}>
+                💰 Record Distribution
+              </button>
             </div>
           </div>
         </div>
