@@ -297,6 +297,10 @@ function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   
+  // Tenants page view state
+  const [tenantsView, setTenantsView] = useState('board'); // 'board', 'cards', 'table'
+  const [tenantFilter, setTenantFilter] = useState('all');
+  
   // Listen for resize
   useEffect(() => {
     const handleResize = () => {
@@ -1180,6 +1184,108 @@ function App() {
       gray: { bg: '#f1f3f4', text: '#5f6368' }
     };
     return colorMap[color] || colorMap.blue;
+  };
+
+  // Get filtered tenants for the modern Tenants page
+  const getFilteredTenants = () => {
+    let filtered = tenants;
+    
+    // Apply status filter
+    if (tenantFilter === 'current') {
+      filtered = filtered.filter(t => t.status === 'Current' || t.status === 'current');
+    } else if (tenantFilter === 'late') {
+      filtered = filtered.filter(t => (t.status === 'Current' || t.status === 'current') && t.paymentStatus === 'late');
+    } else if (tenantFilter === 'prospects') {
+      filtered = filtered.filter(t => t.status === 'Prospect' || t.status === 'prospect');
+    } else if (tenantFilter === 'expiring') {
+      const in90Days = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+      filtered = filtered.filter(t => {
+        const leaseEnd = t.leaseEnd || t.lease_end;
+        return leaseEnd && new Date(leaseEnd) <= in90Days && new Date(leaseEnd) >= new Date();
+      });
+    }
+    
+    // Apply search
+    if (tenantSearchQuery) {
+      const term = tenantSearchQuery.toLowerCase();
+      filtered = filtered.filter(t => 
+        t.name?.toLowerCase().includes(term) ||
+        t.email?.toLowerCase().includes(term) ||
+        t.phone?.includes(term)
+      );
+    }
+    
+    return filtered;
+  };
+
+  // Get tags for a specific tenant
+  const getTenantTags = (tenantId) => {
+    const tagIds = recordTags
+      .filter(rt => rt.record_type === 'tenant' && String(rt.record_id) === String(tenantId))
+      .map(rt => rt.tag_id);
+    return tags.filter(t => tagIds.includes(t.id));
+  };
+
+  // TenantBoardCard component for Kanban view
+  const TenantBoardCard = ({ tenant, onClick }) => {
+    const property = properties.find(p => p.id === tenant.property_id || p.address === tenant.property);
+    
+    return (
+      <div
+        onClick={onClick}
+        style={{
+          background: 'white',
+          borderRadius: 8,
+          padding: 12,
+          cursor: 'pointer',
+          border: '1px solid #e5e7eb',
+          transition: 'all 0.15s'
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+          e.currentTarget.style.transform = 'translateY(-1px)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.boxShadow = 'none';
+          e.currentTarget.style.transform = 'translateY(0)';
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+          <div style={{
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            background: '#e8f0fe',
+            color: '#1a73e8',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontWeight: 600,
+            fontSize: 12
+          }}>
+            {tenant.name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontWeight: 600, fontSize: 14, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {tenant.name}
+            </p>
+          </div>
+        </div>
+        
+        <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 8px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          📍 {property?.name || property?.address?.split(',')[0] || tenant.property || 'Unassigned'}{tenant.unit ? `, ${tenant.unit}` : ''}
+        </p>
+        
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 14, fontWeight: 600 }}>${tenant.rentAmount || tenant.rent || 0}/mo</span>
+          {(tenant.balance > 0 || (tenant.paymentStatus === 'late')) && (
+            <span style={{ fontSize: 12, color: '#dc2626', fontWeight: 500 }}>
+              {tenant.balance > 0 ? `$${tenant.balance} due` : 'Late'}
+            </span>
+          )}
+        </div>
+      </div>
+    );
   };
 
   // Add tag to a record
@@ -5040,6 +5146,197 @@ function App() {
         </>
       )}
 
+      {/* Sidebar - always render */}
+      <aside 
+        className='sidebar'
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          width: sidebarCollapsed ? 64 : 220,
+          height: '100vh',
+          position: 'fixed',
+          left: 0,
+          top: 0,
+          background: 'white',
+          borderRight: '1px solid #e5e7eb',
+          zIndex: 100,
+          transition: 'width 0.2s ease'
+        }}
+      >
+          {/* Logo */}
+          <div style={{ padding: '20px 16px', borderBottom: '1px solid #e5e7eb' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 24 }}>🏠</span>
+              {!sidebarCollapsed && (
+                <span style={{ fontWeight: 700, fontSize: 20, color: '#1a73e8' }}>Propli</span>
+              )}
+            </div>
+          </div>
+          
+          {/* Navigation */}
+          <nav style={{ padding: 16, flex: 1, overflowY: 'auto' }}>
+            <div
+              onClick={() => setActiveTab('dashboard')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 16px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                background: activeTab === 'dashboard' ? '#e8f0fe' : 'transparent',
+                color: activeTab === 'dashboard' ? '#1a73e8' : '#4b5563',
+                fontWeight: activeTab === 'dashboard' ? 600 : 400,
+                marginBottom: 4,
+                transition: 'background 0.2s'
+              }}
+            >
+              <span style={{ fontSize: 20 }}>📊</span>
+              {!sidebarCollapsed && <span>Dashboard</span>}
+            </div>
+            
+            <div
+              onClick={() => setActiveTab('tenants')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 16px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                background: activeTab === 'tenants' ? '#e8f0fe' : 'transparent',
+                color: activeTab === 'tenants' ? '#1a73e8' : '#4b5563',
+                fontWeight: activeTab === 'tenants' ? 600 : 400,
+                marginBottom: 4,
+                transition: 'background 0.2s'
+              }}
+            >
+              <span style={{ fontSize: 20 }}>👥</span>
+              {!sidebarCollapsed && <span>Tenants</span>}
+            </div>
+            
+            <div
+              onClick={() => setActiveTab('properties')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 16px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                background: activeTab === 'properties' ? '#e8f0fe' : 'transparent',
+                color: activeTab === 'properties' ? '#1a73e8' : '#4b5563',
+                fontWeight: activeTab === 'properties' ? 600 : 400,
+                marginBottom: 4,
+                transition: 'background 0.2s'
+              }}
+            >
+              <span style={{ fontSize: 20 }}>🏠</span>
+              {!sidebarCollapsed && <span>Properties</span>}
+            </div>
+            
+            <div
+              onClick={() => setActiveTab('owners')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 16px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                background: activeTab === 'owners' ? '#e8f0fe' : 'transparent',
+                color: activeTab === 'owners' ? '#1a73e8' : '#4b5563',
+                fontWeight: activeTab === 'owners' ? 600 : 400,
+                marginBottom: 4,
+                transition: 'background 0.2s'
+              }}
+            >
+              <span style={{ fontSize: 20 }}>👤</span>
+              {!sidebarCollapsed && <span>Owners</span>}
+            </div>
+            
+            <div
+              onClick={() => setActiveTab('maintenance')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 16px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                background: activeTab === 'maintenance' ? '#e8f0fe' : 'transparent',
+                color: activeTab === 'maintenance' ? '#1a73e8' : '#4b5563',
+                fontWeight: activeTab === 'maintenance' ? 600 : 400,
+                marginBottom: 4,
+                transition: 'background 0.2s'
+              }}
+            >
+              <span style={{ fontSize: 20 }}>🔧</span>
+              {!sidebarCollapsed && <span>Maintenance</span>}
+            </div>
+            
+            <div
+              onClick={() => setActiveTab('schedule')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 16px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                background: activeTab === 'schedule' ? '#e8f0fe' : 'transparent',
+                color: activeTab === 'schedule' ? '#1a73e8' : '#4b5563',
+                fontWeight: activeTab === 'schedule' ? 600 : 400,
+                marginBottom: 4,
+                transition: 'background 0.2s'
+              }}
+            >
+              <span style={{ fontSize: 20 }}>📅</span>
+              {!sidebarCollapsed && <span>Schedule</span>}
+            </div>
+            
+            <div
+              onClick={() => setActiveTab('reports')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 16px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                background: activeTab === 'reports' ? '#e8f0fe' : 'transparent',
+                color: activeTab === 'reports' ? '#1a73e8' : '#4b5563',
+                fontWeight: activeTab === 'reports' ? 600 : 400,
+                marginBottom: 4,
+                transition: 'background 0.2s'
+              }}
+            >
+              <span style={{ fontSize: 20 }}>📈</span>
+              {!sidebarCollapsed && <span>Reports</span>}
+            </div>
+            
+            <div
+              onClick={() => setActiveTab('settings')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 16px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                background: activeTab === 'settings' ? '#e8f0fe' : 'transparent',
+                color: activeTab === 'settings' ? '#1a73e8' : '#4b5563',
+                fontWeight: activeTab === 'settings' ? 600 : 400,
+                marginBottom: 4,
+                transition: 'background 0.2s'
+              }}
+            >
+              <span style={{ fontSize: 20 }}>⚙️</span>
+              {!sidebarCollapsed && <span>Settings</span>}
+            </div>
+          </nav>
+        </aside>
+
       {/* Main Content Area */}
       <div className="main-content-wrapper" style={{ marginLeft: isMobile ? 0 : (sidebarCollapsed ? 64 : 220) }}>
         <main className="main-content">
@@ -5733,1017 +6030,597 @@ function App() {
             )}
 
               {activeTab === 'tenants' && (
-                <div className="content-section">
+                <div style={{ padding: 24 }}>
                   {/* Header */}
-                  <div style={{ marginBottom: '24px' }} className="page-header">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
                     <div>
-                      <h1 style={{ fontSize: '32px', fontWeight: '400', color: '#202124', margin: '0 0 8px 0' }}>Tenants</h1>
-                      <p style={{ fontSize: '14px', color: '#5f6368', margin: 0 }}>Manage your tenant directory</p>
+                      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 4, margin: 0 }}>Tenants</h1>
+                      <p style={{ color: '#6b7280', fontSize: 14, margin: '4px 0 0' }}>{tenants.length} total tenants</p>
                     </div>
-                    <div style={{ display: 'flex', gap: '12px' }} className="page-header-actions">
-                        <button 
-                          className="btn btn-primary" 
-                          onClick={() => setShowAddModal(true)}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px'
-                          }}
-                        >
-                          + Add Tenant
-                        </button>
-                        <button 
-                          className="btn" 
-                          onClick={() => {
-                            setShowOnboardingWizard(true);
-                            setOnboardingStep(1);
-                            setOnboardingData({
-                              property: null,
-                              unit: '',
-                              tenant: {
-                                name: '',
-                                email: '',
-                                phone: '',
-                                isExisting: false,
-                                existingId: null
-                              },
-                              lease: {
-                                monthlyRent: '',
-                                securityDeposit: '',
-                                startDate: '',
-                                endDate: '',
-                                leaseType: 'fixed'
-                              },
-                              documents: [],
-                              moveInDate: '',
-                              moveInNotes: ''
-                            });
-                          }}
-                          style={{
-                            background: '#10b981',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: '8px',
-                            padding: '10px 24px',
-                            fontSize: '14px',
-                            fontWeight: '500',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px'
-                          }}
-                        >
-                          Onboard Tenant
-                        </button>
-                        <button 
-                          className="btn" 
-                          onClick={() => {
-                            setShowOffboardingWizard(true);
-                            setOffboardingStep(1);
-                            setOffboardingData({
-                              tenant: null,
-                              moveOutDate: '',
-                              reason: '',
-                              forwardingAddress: '',
-                              inspectionChecklist: {
-                                wallsClean: false,
-                                floorsClean: false,
-                                appliancesWorking: false,
-                                plumbingWorking: false,
-                                keysReturned: false,
-                                smokeDetectorsWorking: false,
-                                noMissingItems: false
-                              },
-                              inspectionNotes: '',
-                              inspectionPhotos: [],
-                              depositDeductions: [],
-                              finalStatement: null
-                            });
-                          }}
-                          style={{
-                            background: '#ef4444',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: '8px',
-                            padding: '10px 24px',
-                            fontSize: '14px',
-                            fontWeight: '500',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px'
-                          }}
-                        >
-                          Offboard Tenant
-                        </button>
-                      </div>
-                    </div>
-
-                  {/* Mobile Search Bar - Only show on mobile */}
-                  {isMobile && (
-                    <div className="mobile-search" style={{ position: 'relative', marginBottom: '16px' }}>
-                      <input
-                        type="text"
-                        placeholder="Search tenants..."
-                        value={tenantSearchQuery}
-                        onChange={(e) => setTenantSearchQuery(e.target.value)}
-                        aria-label="Search tenants"
-                        style={{
-                          width: '100%',
-                          height: '44px',
-                          padding: '0 16px 0 40px',
-                          border: '1px solid #dadce0',
-                          borderRadius: '8px',
-                          fontSize: '14px',
-                          color: '#202124'
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      <button 
+                        className='btn-secondary' 
+                        onClick={() => {
+                          setShowOnboardingWizard(true);
+                          setOnboardingStep(1);
+                          setOnboardingData({
+                            property: null,
+                            unit: '',
+                            tenant: { name: '', email: '', phone: '', isExisting: false, existingId: null },
+                            lease: { monthlyRent: '', securityDeposit: '', startDate: '', endDate: '', leaseType: 'fixed' },
+                            documents: [],
+                            moveInDate: '',
+                            moveInNotes: ''
+                          });
                         }}
-                      />
-                      <svg 
-                        width="20" 
-                        height="20" 
-                        viewBox="0 0 24 24" 
-                        fill="none" 
-                        stroke="#5f6368" 
-                        strokeWidth="2"
                         style={{
-                          position: 'absolute',
-                          left: '12px',
-                          top: '12px',
-                          pointerEvents: 'none'
-                        }}
-                      >
-                        <circle cx="11" cy="11" r="8"></circle>
-                        <path d="m21 21-4.35-4.35"></path>
-                      </svg>
-                    </div>
-                  )}
-
-                  {/* Search and Filter Bar - Desktop Only */}
-                  {!isMobile && (
-                  <div style={{ 
-                    display: 'flex', 
-                    gap: '12px', 
-                    marginBottom: '24px',
-                    alignItems: 'center'
-                  }} className="filter-row">
-                    <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
-                      <input
-                        type="text"
-                        placeholder="Search tenants..."
-                        value={tenantSearchQuery}
-                        onChange={(e) => setTenantSearchQuery(e.target.value)}
-                        aria-label="Search tenants"
-                        style={{
-                          width: '100%',
-                          height: '40px',
-                          padding: '0 16px 0 40px',
-                          border: '1px solid #dadce0',
-                          borderRadius: '4px',
-                          fontSize: '14px',
-                          color: '#202124'
-                        }}
-                      />
-                      <svg 
-                        width="20" 
-                        height="20" 
-                        viewBox="0 0 24 24" 
-                        fill="none" 
-                        stroke="#5f6368" 
-                        strokeWidth="2"
-                        style={{
-                          position: 'absolute',
-                          left: '12px',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          pointerEvents: 'none'
-                        }}
-                      >
-                        <circle cx="11" cy="11" r="8"></circle>
-                        <path d="m21 21-4.35-4.35"></path>
-                      </svg>
-                    </div>
-                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                      <select 
-                        value={filterStatus} 
-                        onChange={(e) => setFilterStatus(e.target.value)}
-                        style={{
-                          height: '40px',
-                          padding: '0 40px 0 16px',
-                          border: '1px solid #dadce0',
-                          borderRadius: '4px',
-                          background: '#fff',
-                          color: '#202124',
-                          fontSize: '14px',
+                          background: 'white',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: 8,
+                          padding: '10px 20px',
+                          fontSize: 14,
+                          fontWeight: 500,
                           cursor: 'pointer',
-                          appearance: 'none',
-                          backgroundImage: `url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 12 12' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2 4L6 8L10 4' stroke='%235f6368' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
-                          backgroundRepeat: 'no-repeat',
-                          backgroundPosition: 'right 12px center',
-                          paddingRight: '40px'
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8
                         }}
                       >
-                        <option value="all">All Tenants</option>
-                        <option value="current">Current</option>
-                        <option value="prospect">Prospects</option>
-                        <option value="past">Past</option>
-                        <option value="late">Late Payments</option>
-                        {expiringLeases.length > 0 && <option value="expiring">Expiring Leases</option>}
-                      </select>
+                        + Onboard
+                      </button>
+                      <button 
+                        className='btn-primary' 
+                        onClick={() => setShowAddModal(true)}
+                        style={{
+                          background: '#1a73e8',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: 8,
+                          padding: '10px 20px',
+                          fontSize: 14,
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8
+                        }}
+                      >
+                        + Add Tenant
+                      </button>
                     </div>
-                    {/* Tag Filter */}
-                    {tags.length > 0 && (
-                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                        <div style={{ position: 'relative' }}>
-                          <button
-                            onClick={() => {
-                              const dropdown = document.getElementById('tag-filter-dropdown');
-                              if (dropdown) {
-                                dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
-                              }
-                            }}
-                            style={{
-                              height: '40px',
-                              padding: '0 16px',
-                              border: '1px solid #dadce0',
-                              borderRadius: '4px',
-                              background: '#fff',
-                              color: '#202124',
-                              fontSize: '14px',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px'
-                            }}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
-                            </svg>
-                            Tags {selectedTagFilters.length > 0 && `(${selectedTagFilters.length})`}
-                          </button>
-                          <div
-                            id="tag-filter-dropdown"
-                            style={{
-                              display: 'none',
-                              position: 'absolute',
-                              top: '100%',
-                              right: 0,
-                              marginTop: '4px',
-                              background: '#fff',
-                              border: '1px solid #dadce0',
-                              borderRadius: '8px',
-                              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                              padding: '8px',
-                              minWidth: '200px',
-                              maxHeight: '300px',
-                              overflowY: 'auto',
-                              zIndex: 1000
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {tags.map(tag => (
-                              <div
-                                key={tag.id}
-                                onClick={() => {
-                                  if (selectedTagFilters.includes(tag.id)) {
-                                    setSelectedTagFilters(selectedTagFilters.filter(id => id !== tag.id));
-                                  } else {
-                                    setSelectedTagFilters([...selectedTagFilters, tag.id]);
-                                  }
-                                }}
-                                style={{
-                                  padding: '8px 12px',
-                                  cursor: 'pointer',
-                                  borderRadius: '4px',
-                                  background: selectedTagFilters.includes(tag.id) ? '#e8f0fe' : 'transparent',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '8px',
-                                  marginBottom: '4px'
-                                }}
-                                onMouseEnter={(e) => {
-                                  if (!selectedTagFilters.includes(tag.id)) {
-                                    e.currentTarget.style.background = '#f9fafb';
-                                  }
-                                }}
-                                onMouseLeave={(e) => {
-                                  if (!selectedTagFilters.includes(tag.id)) {
-                                    e.currentTarget.style.background = 'transparent';
-                                  }
-                                }}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={selectedTagFilters.includes(tag.id)}
-                                  onChange={() => {}}
-                                  style={{ margin: 0 }}
-                                />
-                                <span className={`tag-pill ${tag.color}`} style={{ fontSize: '12px' }}>
-                                  {tag.name}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
-                  )}
-
-                  {/* Search and Filter Bar - Desktop Only */}
-                  {!isMobile && (
-                  <div style={{ 
-                    display: 'flex', 
-                    gap: '12px', 
-                    marginBottom: '24px',
-                    alignItems: 'center'
-                  }} className="filter-row">
-                    <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
-                        <input
-                          type="text"
-                          placeholder="Search tenants..."
-                          value={tenantSearchQuery}
-                          onChange={(e) => setTenantSearchQuery(e.target.value)}
-                          aria-label="Search tenants"
-                          style={{
-                            width: '100%',
-                            height: '40px',
-                            padding: '0 16px 0 40px',
-                            border: '1px solid #dadce0',
-                            borderRadius: '4px',
-                            fontSize: '14px',
-                            color: '#202124'
-                          }}
-                        />
-                      <svg 
-                        width="20" 
-                        height="20" 
-                        viewBox="0 0 24 24" 
-                        fill="none" 
-                        stroke="#5f6368" 
-                        strokeWidth="2"
-                        style={{
-                          position: 'absolute',
-                          left: '12px',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          pointerEvents: 'none'
-                        }}
-                      >
-                        <circle cx="11" cy="11" r="8"></circle>
-                        <path d="m21 21-4.35-4.35"></path>
-                      </svg>
-                    </div>
-                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                      <select 
-                        value={filterStatus} 
-                        onChange={(e) => setFilterStatus(e.target.value)}
-                        style={{
-                          height: '40px',
-                          padding: '0 40px 0 16px',
-                          border: '1px solid #dadce0',
-                          borderRadius: '4px',
-                          background: '#fff',
-                          color: '#202124',
-                          fontSize: '14px',
-                          cursor: 'pointer',
-                          appearance: 'none',
-                          backgroundImage: `url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 12 12' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M2 4L6 8L10 4' stroke='%235f6368' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
-                          backgroundRepeat: 'no-repeat',
-                          backgroundPosition: 'right 12px center',
-                          paddingRight: '40px'
-                        }}
-                      >
-                        <option value="all">All Tenants</option>
-                        <option value="current">Current</option>
-                        <option value="prospect">Prospects</option>
-                        <option value="past">Past</option>
-                        <option value="late">Late Payments</option>
-                        {expiringLeases.length > 0 && <option value="expiring">Expiring Leases</option>}
-                      </select>
-                    </div>
-                    {/* Tag Filter */}
-                    {tags.length > 0 && (
-                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                        <div style={{ position: 'relative' }}>
-                          <button
-                            onClick={() => {
-                              const dropdown = document.getElementById('tag-filter-dropdown');
-                              if (dropdown) {
-                                dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
-                              }
-                            }}
-                            style={{
-                              height: '40px',
-                              padding: '0 16px',
-                              border: '1px solid #dadce0',
-                              borderRadius: '4px',
-                              background: '#fff',
-                              color: '#202124',
-                              fontSize: '14px',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                              whiteSpace: 'nowrap'
-                            }}
-                          >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
-                              <line x1="7" y1="7" x2="7.01" y2="7"></line>
-                            </svg>
-                            Filter by Tag
-                            {selectedTagFilters.length > 0 && (
-                              <span style={{
-                                background: '#1a73e8',
-                                color: '#fff',
-                                borderRadius: '10px',
-                                padding: '2px 6px',
-                                fontSize: '11px',
-                                fontWeight: '500'
-                              }}>
-                                {selectedTagFilters.length}
-                              </span>
-                            )}
-                          </button>
-                          <div
-                            id="tag-filter-dropdown"
-                            style={{
-                              display: 'none',
-                              position: 'absolute',
-                              top: '100%',
-                              left: 0,
-                              marginTop: '4px',
-                              background: '#fff',
-                              border: '1px solid #dadce0',
-                              borderRadius: '8px',
-                              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                              zIndex: 1000,
-                              minWidth: '200px',
-                              maxHeight: '300px',
-                              overflowY: 'auto',
-                              padding: '8px'
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {tags.map(tag => {
-                              const isSelected = selectedTagFilters.includes(tag.id);
-                              const colorMap = {
-                                blue: '#1a73e8',
-                                green: '#10b981',
-                                yellow: '#fbbf24',
-                                orange: '#f97316',
-                                red: '#ef4444',
-                                purple: '#a855f7',
-                                teal: '#14b8a6',
-                                gray: '#6b7280'
-                              };
-                              return (
-                                <label
-                                  key={tag.id}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '8px',
-                                    padding: '8px',
-                                    cursor: 'pointer',
-                                    borderRadius: '4px'
-                                  }}
-                                  onMouseEnter={(e) => e.target.style.background = '#f8f9fa'}
-                                  onMouseLeave={(e) => e.target.style.background = 'transparent'}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={(e) => {
-                                      if (e.target.checked) {
-                                        setSelectedTagFilters([...selectedTagFilters, tag.id]);
-                                      } else {
-                                        setSelectedTagFilters(selectedTagFilters.filter(id => id !== tag.id));
-                                      }
-                                    }}
-                                    style={{ cursor: 'pointer' }}
-                                  />
-                                  <div
-                                    style={{
-                                      width: '12px',
-                                      height: '12px',
-                                      borderRadius: '50%',
-                                      background: colorMap[tag.color] || colorMap.blue,
-                                      flexShrink: 0
-                                    }}
-                                  />
-                                  <span style={{ fontSize: '14px', color: '#202124' }}>{tag.name}</span>
-                                </label>
-                              );
-                            })}
-                            {selectedTagFilters.length > 0 && (
-                              <div style={{ padding: '8px', borderTop: '1px solid #e5e7eb', marginTop: '4px' }}>
-                                <button
-                                  onClick={() => {
-                                    setSelectedTagFilters([]);
-                                    document.getElementById('tag-filter-dropdown').style.display = 'none';
-                                  }}
-                                  style={{
-                                    width: '100%',
-                                    padding: '6px',
-                                    background: 'none',
-                                    border: '1px solid #dadce0',
-                                    borderRadius: '4px',
-                                    color: '#5f6368',
-                                    cursor: 'pointer',
-                                    fontSize: '12px'
-                                  }}
-                                >
-                                  Clear filters
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        {selectedTagFilters.length > 0 && (
-                          <button
-                            onClick={() => setSelectedTagFilters([])}
-                            style={{
-                              marginLeft: '8px',
-                              background: 'none',
-                              border: 'none',
-                              color: '#5f6368',
-                              cursor: 'pointer',
-                              padding: '4px',
-                              display: 'flex',
-                              alignItems: 'center'
-                            }}
-                            title="Clear tag filters"
-                          >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <line x1="18" y1="6" x2="6" y2="18"></line>
-                              <line x1="6" y1="6" x2="18" y2="18"></line>
-                            </svg>
-                          </button>
-                        )}
-                      </div>
-                    )}
-                    {selectedTagFilters.length > 0 && (
-                      <div style={{ fontSize: '12px', color: '#5f6368', whiteSpace: 'nowrap' }}>
-                        {filteredTenants.length} result{filteredTenants.length !== 1 ? 's' : ''}
-                      </div>
-                    )}
-                    <button
-                      onClick={exportToCSV}
+                  
+                  {/* Quick Stats Bar */}
+                  <div style={{ display: 'flex', gap: 16, marginBottom: 24, overflowX: 'auto', paddingBottom: 8 }}>
+                    <div 
+                      onClick={() => setTenantFilter('all')}
                       style={{
-                        height: '40px',
-                        padding: '0 16px',
-                        border: '1px solid #dadce0',
-                        borderRadius: '4px',
-                        background: '#fff',
-                        color: '#202124',
-                        fontSize: '14px',
+                        padding: '12px 20px',
+                        background: tenantFilter === 'all' ? '#1a73e8' : 'white',
+                        color: tenantFilter === 'all' ? 'white' : '#4b5563',
+                        borderRadius: 24,
+                        border: '1px solid #e5e7eb',
                         cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px'
+                        whiteSpace: 'nowrap',
+                        fontWeight: 500,
+                        fontSize: 14
                       }}
                     >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                        <polyline points="7 10 12 15 17 10"></polyline>
-                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                      </svg>
-                      Export
-                    </button>
+                      All ({tenants.length})
+                    </div>
+                    <div 
+                      onClick={() => setTenantFilter('current')}
+                      style={{
+                        padding: '12px 20px',
+                        background: tenantFilter === 'current' ? '#10b981' : 'white',
+                        color: tenantFilter === 'current' ? 'white' : '#4b5563',
+                        borderRadius: 24,
+                        border: '1px solid #e5e7eb',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        fontWeight: 500,
+                        fontSize: 14
+                      }}
+                    >
+                      Current ({tenants.filter(t => t.status === 'Current' || t.status === 'current').length})
+                    </div>
+                    <div 
+                      onClick={() => setTenantFilter('late')}
+                      style={{
+                        padding: '12px 20px',
+                        background: tenantFilter === 'late' ? '#ef4444' : 'white',
+                        color: tenantFilter === 'late' ? 'white' : '#4b5563',
+                        borderRadius: 24,
+                        border: '1px solid #e5e7eb',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        fontWeight: 500,
+                        fontSize: 14
+                      }}
+                    >
+                      Late ({tenants.filter(t => (t.status === 'Current' || t.status === 'current') && t.paymentStatus === 'late').length})
+                    </div>
+                    <div 
+                      onClick={() => setTenantFilter('expiring')}
+                      style={{
+                        padding: '12px 20px',
+                        background: tenantFilter === 'expiring' ? '#f59e0b' : 'white',
+                        color: tenantFilter === 'expiring' ? 'white' : '#4b5563',
+                        borderRadius: 24,
+                        border: '1px solid #e5e7eb',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        fontWeight: 500,
+                        fontSize: 14
+                      }}
+                    >
+                      Expiring Soon ({getExpiringLeases().length})
+                    </div>
+                    <div 
+                      onClick={() => setTenantFilter('prospects')}
+                      style={{
+                        padding: '12px 20px',
+                        background: tenantFilter === 'prospects' ? '#8b5cf6' : 'white',
+                        color: tenantFilter === 'prospects' ? 'white' : '#4b5563',
+                        borderRadius: 24,
+                        border: '1px solid #e5e7eb',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        fontWeight: 500,
+                        fontSize: 14
+                      }}
+                    >
+                      Prospects ({tenants.filter(t => t.status === 'Prospect' || t.status === 'prospect').length})
+                    </div>
                   </div>
+                  
+                  {/* Search and View Toggle */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                    <div style={{ position: 'relative', width: 300 }}>
+                      <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }}>🔍</span>
+                      <input
+                        type='text'
+                        placeholder='Search tenants...'
+                        value={tenantSearchQuery}
+                        onChange={(e) => setTenantSearchQuery(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px 10px 40px',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: 8,
+                          fontSize: 14
+                        }}
+                      />
+                    </div>
+                    
+                    {/* View Toggle */}
+                    <div style={{ display: 'flex', background: '#f3f4f6', borderRadius: 8, padding: 4 }}>
+                      <button
+                        onClick={() => setTenantsView('board')}
+                        style={{
+                          padding: '8px 16px',
+                          border: 'none',
+                          borderRadius: 6,
+                          background: tenantsView === 'board' ? 'white' : 'transparent',
+                          boxShadow: tenantsView === 'board' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                          cursor: 'pointer',
+                          fontSize: 14
+                        }}
+                      >
+                        ▤ Board
+                      </button>
+                      <button
+                        onClick={() => setTenantsView('cards')}
+                        style={{
+                          padding: '8px 16px',
+                          border: 'none',
+                          borderRadius: 6,
+                          background: tenantsView === 'cards' ? 'white' : 'transparent',
+                          boxShadow: tenantsView === 'cards' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                          cursor: 'pointer',
+                          fontSize: 14
+                        }}
+                      >
+                        ▦ Cards
+                      </button>
+                      <button
+                        onClick={() => setTenantsView('table')}
+                        style={{
+                          padding: '8px 16px',
+                          border: 'none',
+                          borderRadius: 6,
+                          background: tenantsView === 'table' ? 'white' : 'transparent',
+                          boxShadow: tenantsView === 'table' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                          cursor: 'pointer',
+                          fontSize: 14
+                        }}
+                      >
+                        ☰ Table
+                      </button>
+                    </div>
+                  </div>
+                  
+                  {/* BOARD VIEW - Kanban style grouped by status */}
+                  {tenantsView === 'board' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 20, alignItems: 'flex-start' }}>
+                      {/* Current Column */}
+                      <div style={{ background: '#f9fafb', borderRadius: 12, padding: 16 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+                          <h3 style={{ fontWeight: 600, fontSize: 14, margin: 0 }}>Current</h3>
+                          <span style={{ marginLeft: 'auto', background: '#d1fae5', color: '#065f46', padding: '2px 8px', borderRadius: 12, fontSize: 12 }}>
+                            {tenants.filter(t => (t.status === 'Current' || t.status === 'current') && t.paymentStatus !== 'late').length}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {getFilteredTenants().filter(t => (t.status === 'Current' || t.status === 'current') && t.paymentStatus !== 'late').map(tenant => (
+                            <TenantBoardCard 
+                              key={tenant.id} 
+                              tenant={tenant} 
+                              onClick={() => {
+                                setSelectedTenant(tenant);
+                                loadFilesForRecord('tenant', tenant.id).then(files => setTenantFiles(files));
+                              }} 
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      
+                      {/* Late Column */}
+                      <div style={{ background: '#f9fafb', borderRadius: 12, padding: 16 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444' }} />
+                          <h3 style={{ fontWeight: 600, fontSize: 14, margin: 0 }}>Late</h3>
+                          <span style={{ marginLeft: 'auto', background: '#fee2e2', color: '#991b1b', padding: '2px 8px', borderRadius: 12, fontSize: 12 }}>
+                            {tenants.filter(t => (t.status === 'Current' || t.status === 'current') && t.paymentStatus === 'late').length}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {getFilteredTenants().filter(t => (t.status === 'Current' || t.status === 'current') && t.paymentStatus === 'late').map(tenant => (
+                            <TenantBoardCard 
+                              key={tenant.id} 
+                              tenant={tenant} 
+                              onClick={() => {
+                                setSelectedTenant(tenant);
+                                loadFilesForRecord('tenant', tenant.id).then(files => setTenantFiles(files));
+                              }} 
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      
+                      {/* Prospect Column */}
+                      <div style={{ background: '#f9fafb', borderRadius: 12, padding: 16 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#8b5cf6' }} />
+                          <h3 style={{ fontWeight: 600, fontSize: 14, margin: 0 }}>Prospects</h3>
+                          <span style={{ marginLeft: 'auto', background: '#ede9fe', color: '#5b21b6', padding: '2px 8px', borderRadius: 12, fontSize: 12 }}>
+                            {tenants.filter(t => t.status === 'Prospect' || t.status === 'prospect').length}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {getFilteredTenants().filter(t => t.status === 'Prospect' || t.status === 'prospect').map(tenant => (
+                            <TenantBoardCard 
+                              key={tenant.id} 
+                              tenant={tenant} 
+                              onClick={() => {
+                                setSelectedTenant(tenant);
+                                loadFilesForRecord('tenant', tenant.id).then(files => setTenantFiles(files));
+                              }} 
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      
+                      {/* Past Column */}
+                      <div style={{ background: '#f9fafb', borderRadius: 12, padding: 16 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#9ca3af' }} />
+                          <h3 style={{ fontWeight: 600, fontSize: 14, margin: 0 }}>Past</h3>
+                          <span style={{ marginLeft: 'auto', background: '#f3f4f6', color: '#4b5563', padding: '2px 8px', borderRadius: 12, fontSize: 12 }}>
+                            {tenants.filter(t => t.status === 'Past' || t.status === 'past').length}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {getFilteredTenants().filter(t => t.status === 'Past' || t.status === 'past').map(tenant => (
+                            <TenantBoardCard 
+                              key={tenant.id} 
+                              tenant={tenant} 
+                              onClick={() => {
+                                setSelectedTenant(tenant);
+                                loadFilesForRecord('tenant', tenant.id).then(files => setTenantFiles(files));
+                              }} 
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                   )}
-
-                  {/* Mobile Card View */}
-                  {isMobile ? (
-                    <div className='mobile-cards'>
-                      {filteredTenants.map(tenant => {
+                  
+                  {/* CARDS VIEW - Grid of tenant cards */}
+                  {tenantsView === 'cards' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
+                      {getFilteredTenants().map(tenant => {
                         const property = properties.find(p => p.id === tenant.property_id || p.address === tenant.property);
-                        const isLate = tenant.status === 'current' && tenant.paymentStatus === 'late';
-                        const statusBadge = tenant.status === 'current' 
+                        const tenantTags = getTenantTags(tenant.id);
+                        const isLate = tenant.paymentStatus === 'late';
+                        const displayStatus = tenant.status === 'current' || tenant.status === 'Current' 
                           ? (isLate ? 'Late' : 'Current')
-                          : tenant.status === 'prospect' 
+                          : tenant.status === 'prospect' || tenant.status === 'Prospect'
                           ? 'Prospect'
                           : 'Past';
                         
                         return (
                           <div
                             key={tenant.id}
-                            className='mobile-card'
                             onClick={() => {
                               setSelectedTenant(tenant);
-                              loadFilesForRecord('tenant', tenant.id).then(files => {
-                                setTenantFiles(files);
-                              });
+                              loadFilesForRecord('tenant', tenant.id).then(files => setTenantFiles(files));
                             }}
+                            style={{
+                              background: 'white',
+                              borderRadius: 12,
+                              border: '1px solid #e5e7eb',
+                              padding: 20,
+                              cursor: 'pointer',
+                              transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'}
+                            onMouseLeave={(e) => e.currentTarget.style.boxShadow = 'none'}
                           >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+                              {/* Avatar */}
                               <div style={{
-                                width: 48,
-                                height: 48,
-                                borderRadius: '50%',
-                                background: getAvatarColorByName(tenant.name),
-                                color: 'white',
+                                width: 56,
+                                height: 56,
+                                borderRadius: 12,
+                                background: displayStatus === 'Current' ? '#d1fae5' : displayStatus === 'Late' ? '#fee2e2' : displayStatus === 'Prospect' ? '#ede9fe' : '#f3f4f6',
+                                color: displayStatus === 'Current' ? '#065f46' : displayStatus === 'Late' ? '#991b1b' : displayStatus === 'Prospect' ? '#5b21b6' : '#4b5563',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                fontWeight: 600,
-                                fontSize: 16
+                                fontWeight: 700,
+                                fontSize: 18
                               }}>
-                                {getInitials(tenant.name)}
+                                {tenant.name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
                               </div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <p style={{ fontWeight: 600, marginBottom: 2, margin: 0, fontSize: 16 }}>{tenant.name}</p>
-                                <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>{tenant.email || ''}</p>
-                              </div>
-                              <span style={{
-                                padding: '4px 10px',
-                                borderRadius: 12,
-                                fontSize: 12,
-                                fontWeight: 500,
-                                background: statusBadge === 'Current' ? '#d1fae5' : 
-                                          statusBadge === 'Late' ? '#fee2e2' : 
-                                          statusBadge === 'Prospect' ? '#dbeafe' : '#f3f4f6',
-                                color: statusBadge === 'Current' ? '#065f46' : 
-                                      statusBadge === 'Late' ? '#991b1b' : 
-                                      statusBadge === 'Prospect' ? '#1e40af' : '#6b7280'
-                              }}>
-                                {statusBadge}
-                              </span>
-                            </div>
-                            
-                            <div style={{ fontSize: 14, color: '#4b5563', marginBottom: 12 }}>
-                              <p style={{ margin: '4px 0' }}>
-                                📍 {property?.name || property?.address || tenant.property || 'Unassigned'}{tenant.unit ? `, Unit ${tenant.unit}` : ''}
-                              </p>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
-                                <span>💰 ${tenant.rentAmount || tenant.rent || 0}/mo</span>
-                                <span>📅 {tenant.leaseEnd ? new Date(tenant.leaseEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'MTM'}</span>
+                              
+                              <div style={{ flex: 1 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                  <h3 style={{ fontWeight: 600, fontSize: 16, margin: 0 }}>{tenant.name}</h3>
+                                  <span style={{
+                                    padding: '2px 8px',
+                                    borderRadius: 12,
+                                    fontSize: 11,
+                                    fontWeight: 500,
+                                    background: displayStatus === 'Current' ? '#d1fae5' : displayStatus === 'Late' ? '#fee2e2' : displayStatus === 'Prospect' ? '#ede9fe' : '#f3f4f6',
+                                    color: displayStatus === 'Current' ? '#065f46' : displayStatus === 'Late' ? '#991b1b' : displayStatus === 'Prospect' ? '#5b21b6' : '#4b5563'
+                                  }}>
+                                    {displayStatus}
+                                  </span>
+                                </div>
+                                <p style={{ fontSize: 13, color: '#6b7280', margin: '4px 0' }}>{tenant.email}</p>
+                                <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
+                                  📍 {property?.name || property?.address?.split(',')[0] || tenant.property || 'Unassigned'}{tenant.unit ? `, Unit ${tenant.unit}` : ''}
+                                </p>
                               </div>
                             </div>
                             
-                            <div style={{ display: 'flex', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid #e5e7eb' }}>
-                              <a 
-                                href={`mailto:${tenant.email}`} 
-                                onClick={(e) => e.stopPropagation()}
-                                style={{ flex: 1, textAlign: 'center', padding: 10, background: '#f3f4f6', borderRadius: 8, textDecoration: 'none', color: '#4b5563', fontSize: 14, fontWeight: 500 }}
-                              >
+                            {/* Financial Info */}
+                            <div style={{ display: 'flex', gap: 24, marginTop: 16, paddingTop: 16, borderTop: '1px solid #f3f4f6' }}>
+                              <div>
+                                <p style={{ fontSize: 11, color: '#9ca3af', margin: 0, textTransform: 'uppercase' }}>Rent</p>
+                                <p style={{ fontSize: 16, fontWeight: 600, margin: '4px 0 0' }}>${tenant.rentAmount || tenant.rent || 0}</p>
+                              </div>
+                              <div>
+                                <p style={{ fontSize: 11, color: '#9ca3af', margin: 0, textTransform: 'uppercase' }}>Balance</p>
+                                <p style={{ 
+                                  fontSize: 16, 
+                                  fontWeight: 600, 
+                                  margin: '4px 0 0',
+                                  color: (tenant.balance || 0) > 0 ? '#dc2626' : '#10b981'
+                                }}>
+                                  ${tenant.balance || 0}
+                                </p>
+                              </div>
+                              <div>
+                                <p style={{ fontSize: 11, color: '#9ca3af', margin: 0, textTransform: 'uppercase' }}>Lease Ends</p>
+                                <p style={{ fontSize: 14, fontWeight: 500, margin: '4px 0 0' }}>
+                                  {(tenant.leaseEnd || tenant.lease_end) ? new Date(tenant.leaseEnd || tenant.lease_end).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'MTM'}
+                                </p>
+                              </div>
+                            </div>
+                            
+                            {/* Tags */}
+                            {tenantTags.length > 0 && (
+                              <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
+                                {tenantTags.map(tag => {
+                                  const tagColor = getTagColor(tag.color);
+                                  return (
+                                    <span key={tag.id} style={{
+                                      padding: '2px 8px',
+                                      borderRadius: 6,
+                                      fontSize: 11,
+                                      background: tagColor.bg,
+                                      color: tagColor.text
+                                    }}>
+                                      {tag.name}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            
+                            {/* Quick Actions */}
+                            <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                              <a href={`mailto:${tenant.email}`} onClick={e => e.stopPropagation()} style={{
+                                flex: 1,
+                                padding: '8px 12px',
+                                background: '#f3f4f6',
+                                borderRadius: 6,
+                                textAlign: 'center',
+                                textDecoration: 'none',
+                                color: '#4b5563',
+                                fontSize: 13
+                              }}>
                                 ✉️ Email
                               </a>
-                              <a 
-                                href={`tel:${tenant.phone}`} 
-                                onClick={(e) => e.stopPropagation()}
-                                style={{ flex: 1, textAlign: 'center', padding: 10, background: '#f3f4f6', borderRadius: 8, textDecoration: 'none', color: '#4b5563', fontSize: 14, fontWeight: 500 }}
-                              >
+                              <a href={`tel:${tenant.phone}`} onClick={e => e.stopPropagation()} style={{
+                                flex: 1,
+                                padding: '8px 12px',
+                                background: '#f3f4f6',
+                                borderRadius: 6,
+                                textAlign: 'center',
+                                textDecoration: 'none',
+                                color: '#4b5563',
+                                fontSize: 13
+                              }}>
                                 📞 Call
                               </a>
+                              <button onClick={(e) => { e.stopPropagation(); setShowPaymentRequestModal(tenant); }} style={{
+                                flex: 1,
+                                padding: '8px 12px',
+                                background: '#1a73e8',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: 6,
+                                cursor: 'pointer',
+                                fontSize: 13
+                              }}>
+                                💰 Payment
+                              </button>
                             </div>
                           </div>
                         );
                       })}
-                      {filteredTenants.length === 0 && (
-                        <div style={{ textAlign: 'center', padding: '40px', color: '#5f6368' }}>
+                      {getFilteredTenants().length === 0 && (
+                        <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: 40, color: '#5f6368' }}>
                           No tenants found
                         </div>
                       )}
                     </div>
-                  ) : (
-                    /* Desktop Table View */
-                    <div style={{
-                      background: '#fff',
-                      border: '1px solid #dadce0',
-                      borderRadius: '8px',
-                      overflow: 'hidden'
-                    }}>
-                      <table className="tenant-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr style={{ background: '#f8f9fa', borderBottom: '1px solid #dadce0' }}>
-                          <th style={{ 
-                            padding: '12px 16px', 
-                            textAlign: 'left', 
-                            fontSize: '14px', 
-                            fontWeight: '500', 
-                            color: '#5f6368' 
-                          }}>Tenant</th>
-                          <th style={{ 
-                            padding: '12px 16px', 
-                            textAlign: 'left', 
-                            fontSize: '14px', 
-                            fontWeight: '500', 
-                            color: '#5f6368' 
-                          }}>Property</th>
-                          <th style={{ 
-                            padding: '12px 16px', 
-                            textAlign: 'left', 
-                            fontSize: '14px', 
-                            fontWeight: '500', 
-                            color: '#5f6368' 
-                          }}>Rent</th>
-                          <th style={{ 
-                            padding: '12px 16px', 
-                            textAlign: 'left', 
-                            fontSize: '14px', 
-                            fontWeight: '500', 
-                            color: '#5f6368' 
-                          }}>Lease End</th>
-                          <th style={{ 
-                            padding: '12px 16px', 
-                            textAlign: 'left', 
-                            fontSize: '14px', 
-                            fontWeight: '500', 
-                            color: '#5f6368' 
-                          }}>Status</th>
-                          <th style={{ 
-                            padding: '12px 16px', 
-                            textAlign: 'center', 
-                            fontSize: '14px', 
-                            fontWeight: '500', 
-                            color: '#5f6368' 
-                          }}>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredTenants.map((tenant, index) => {
-                          const isLate = tenant.status === 'current' && tenant.paymentStatus === 'late';
-                          const statusBadge = tenant.status === 'current' 
-                            ? (isLate ? 'Late' : 'Current')
-                            : tenant.status === 'prospect' 
-                            ? 'Prospect'
-                            : 'Past';
-                          
-                          return (
-                            <tr
-                              key={tenant.id}
-                              onClick={(e) => {
-                                // Don't open modal if clicking on action icons
-                                if (e.target.closest('.action-icon')) return;
-                                setSelectedTenant(tenant);
-                                // Load files for this tenant
-                                loadFilesForRecord('tenant', tenant.id).then(files => {
-                                  setTenantFiles(files);
-                                });
-                              }}
-                              onContextMenu={(e) => {
-                                e.preventDefault();
-                                setQuickTagMenu({
-                                  recordType: 'tenant',
-                                  recordId: tenant.id,
-                                  x: e.clientX,
-                                  y: e.clientY
-                                });
-                              }}
-                              style={{
-                                borderBottom: index < filteredTenants.length - 1 ? '1px solid #e5e7eb' : 'none',
-                                cursor: 'pointer',
-                                transition: 'background-color 0.2s',
-                                background: '#fff'
-                              }}
-                              onMouseEnter={(e) => {
-                                e.currentTarget.style.background = '#f9fafb';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.background = '#fff';
-                              }}
-                            >
-                              {/* Tenant Column */}
-                              <td style={{ padding: '12px 16px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                  <div
-                                    style={{
-                                      width: '40px',
-                                      height: '40px',
+                  )}
+                  
+                  {/* TABLE VIEW - Traditional table */}
+                  {tenantsView === 'table' && (
+                    <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ background: '#f8f9fa', borderBottom: '1px solid #dadce0' }}>
+                            <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 14, fontWeight: 500, color: '#5f6368' }}>Tenant</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 14, fontWeight: 500, color: '#5f6368' }}>Property</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 14, fontWeight: 500, color: '#5f6368' }}>Rent</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 14, fontWeight: 500, color: '#5f6368' }}>Lease End</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 14, fontWeight: 500, color: '#5f6368' }}>Status</th>
+                            <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: 14, fontWeight: 500, color: '#5f6368' }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {getFilteredTenants().map((tenant, index) => {
+                            const property = properties.find(p => p.id === tenant.property_id || p.address === tenant.property);
+                            const isLate = (tenant.status === 'current' || tenant.status === 'Current') && tenant.paymentStatus === 'late';
+                            const displayStatus = tenant.status === 'current' || tenant.status === 'Current'
+                              ? (isLate ? 'Late' : 'Current')
+                              : tenant.status === 'prospect' || tenant.status === 'Prospect'
+                              ? 'Prospect'
+                              : 'Past';
+                            
+                            return (
+                              <tr
+                                key={tenant.id}
+                                onClick={() => {
+                                  setSelectedTenant(tenant);
+                                  loadFilesForRecord('tenant', tenant.id).then(files => setTenantFiles(files));
+                                }}
+                                style={{
+                                  borderBottom: index < getFilteredTenants().length - 1 ? '1px solid #e5e7eb' : 'none',
+                                  cursor: 'pointer',
+                                  transition: 'background-color 0.2s',
+                                  background: '#fff'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.background = '#f9fafb'}
+                                onMouseLeave={(e) => e.currentTarget.style.background = '#fff'}
+                              >
+                                <td style={{ padding: '12px 16px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                    <div style={{
+                                      width: 40,
+                                      height: 40,
                                       borderRadius: '50%',
                                       background: getAvatarColorByName(tenant.name),
                                       color: '#fff',
                                       display: 'flex',
                                       alignItems: 'center',
                                       justifyContent: 'center',
-                                      fontSize: '14px',
-                                      fontWeight: '500',
+                                      fontSize: 14,
+                                      fontWeight: 500,
                                       flexShrink: 0
-                                    }}
-                                  >
-                                    {getInitials(tenant.name)}
-                                  </div>
-                                  <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontSize: '14px', fontWeight: '400', color: '#202124', marginBottom: '2px' }}>
-                                      {tenant.name}
+                                    }}>
+                                      {getInitials(tenant.name)}
                                     </div>
-                                    {tenant.email && (
-                                      <div style={{ fontSize: '12px', color: '#5f6368', marginBottom: '4px' }}>
-                                        {tenant.email}
-                                      </div>
-                                    )}
-                                    {/* Tags */}
-                                    {(() => {
-                                      const tenantTags = getTagsForRecord('tenant', tenant.id);
-                                      const maxVisible = 2;
-                                      const visibleTags = tenantTags.slice(0, maxVisible);
-                                      const remainingCount = tenantTags.length - maxVisible;
-                                      
-                                      if (tenantTags.length === 0) return null;
-                                      
-                                      return (
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px', alignItems: 'center' }}>
-                                          {visibleTags.map(tag => (
-                                            <span
-                                              key={tag.id}
-                                              className={`tag-pill ${tag.color} clickable`}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (!selectedTagFilters.includes(tag.id)) {
-                                                  setSelectedTagFilters([...selectedTagFilters, tag.id]);
-                                                }
-                                              }}
-                                              title={`Filter by ${tag.name}`}
-                                            >
-                                              {tag.name}
-                                            </span>
-                                          ))}
-                                          {remainingCount > 0 && (
-                                            <span
-                                              className="tag-pill gray clickable"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                // Show all tags for this tenant
-                                                const allTagIds = tenantTags.map(t => t.id);
-                                                setSelectedTagFilters([...new Set([...selectedTagFilters, ...allTagIds])]);
-                                              }}
-                                              title={`${remainingCount} more tag${remainingCount > 1 ? 's' : ''}`}
-                                              style={{ fontSize: '10px', padding: '2px 6px' }}
-                                            >
-                                              +{remainingCount} more
-                                            </span>
-                                          )}
-                                        </div>
-                                      );
-                                    })()}
-                                  </div>
-                                </div>
-                              </td>
-                              
-                              {/* Property Column */}
-                              <td style={{ padding: '12px 16px' }}>
-                                <div>
-                                  {(() => {
-                                    if (!tenant.property) {
-                                      return <div style={{ fontSize: '14px', color: '#202124' }}>N/A</div>;
-                                    }
-                                    
-                                    const unit = extractUnitNumber(tenant.property);
-                                    // Extract property name by removing unit information
-                                    let propertyName = tenant.property;
-                                    const unitPatterns = [
-                                      /\s*Unit\s+[A-Z0-9]+/i,
-                                      /\s*Apt\s+[A-Z0-9]+/i,
-                                      /\s*Apartment\s+[A-Z0-9]+/i,
-                                      /\s*#\s*[A-Z0-9]+/i
-                                    ];
-                                    
-                                    for (const pattern of unitPatterns) {
-                                      propertyName = propertyName.replace(pattern, '').trim();
-                                    }
-                                    
-                                    const hasUnit = unit && unit !== tenant.property && unit !== 'N/A';
-                                    
-                                    return (
-                                      <>
-                                        <div style={{ fontSize: '14px', color: '#202124', marginBottom: hasUnit ? '2px' : '0' }}>
-                                          {propertyName || 'N/A'}
-                                        </div>
-                                        {hasUnit && (
-                                          <div style={{ fontSize: '12px', color: '#5f6368' }}>
-                                            {unit.includes('Unit') || unit.includes('Apt') || unit.includes('#') ? unit : `Unit ${unit}`}
-                                          </div>
-                                        )}
-                                      </>
-                                    );
-                                  })()}
-                                </div>
-                              </td>
-                              
-                              {/* Rent Column */}
-                              <td style={{ padding: '12px 16px' }}>
-                                <div>
-                                  <div style={{ fontSize: '14px', color: '#202124', marginBottom: '2px' }}>
-                                    ${tenant.rentAmount > 0 ? tenant.rentAmount.toLocaleString() : '0'}
-                                  </div>
-                                  {isLate && (
-                                    <div style={{ fontSize: '12px', color: '#ef4444' }}>
-                                      -${tenant.rentAmount.toLocaleString()} due
+                                    <div>
+                                      <div style={{ fontSize: 14, fontWeight: 500, color: '#202124' }}>{tenant.name}</div>
+                                      {tenant.email && <div style={{ fontSize: 12, color: '#5f6368' }}>{tenant.email}</div>}
                                     </div>
-                                  )}
-                                </div>
-                              </td>
-                              
-                              {/* Lease End Column */}
-                              <td style={{ padding: '12px 16px' }}>
-                                <div style={{ fontSize: '14px', color: '#202124' }}>
-                                  {formatLeaseEndDate(tenant.leaseEnd, tenant.status)}
-                                </div>
-                              </td>
-                              
-                              {/* Status Column */}
-                              <td style={{ padding: '12px 16px' }}>
-                                <span
-                                  style={{
-                                    fontSize: '12px',
+                                  </div>
+                                </td>
+                                <td style={{ padding: '12px 16px', fontSize: 14, color: '#202124' }}>
+                                  {property?.name || property?.address?.split(',')[0] || tenant.property || 'Unassigned'}
+                                  {tenant.unit && <span style={{ color: '#5f6368' }}>, Unit {tenant.unit}</span>}
+                                </td>
+                                <td style={{ padding: '12px 16px', fontSize: 14, fontWeight: 500, color: '#202124' }}>
+                                  ${tenant.rentAmount || tenant.rent || 0}/mo
+                                </td>
+                                <td style={{ padding: '12px 16px', fontSize: 14, color: '#202124' }}>
+                                  {(tenant.leaseEnd || tenant.lease_end) 
+                                    ? new Date(tenant.leaseEnd || tenant.lease_end).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                                    : 'MTM'}
+                                </td>
+                                <td style={{ padding: '12px 16px' }}>
+                                  <span style={{
                                     padding: '4px 12px',
-                                    borderRadius: '12px',
-                                    display: 'inline-block',
-                                    background: statusBadge === 'Current' 
-                                      ? '#dcfce7' 
-                                      : statusBadge === 'Late' 
-                                      ? '#fee2e2' 
-                                      : statusBadge === 'Prospect'
-                                      ? '#fef3c7'
-                                      : '#f3f4f6',
-                                    color: statusBadge === 'Current' 
-                                      ? '#166534' 
-                                      : statusBadge === 'Late' 
-                                      ? '#991b1b' 
-                                      : statusBadge === 'Prospect'
-                                      ? '#92400e'
-                                      : '#4b5563'
-                                  }}
-                                >
-                                  {statusBadge}
-                                </span>
-                              </td>
-                              
-                              {/* Actions Column */}
-                              <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                                <div style={{ display: 'flex', justifyContent: 'center', gap: '8px' }}>
-                                  {tenant.email && (
-                                    <a
-                                      href={`mailto:${tenant.email}`}
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="action-icon"
-                                      style={{
-                                        color: '#5f6368',
-                                        cursor: 'pointer',
-                                        padding: '4px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        transition: 'color 0.2s'
-                                      }}
-                                      onMouseEnter={(e) => {
-                                        e.currentTarget.style.color = '#1a73e8';
-                                      }}
-                                      onMouseLeave={(e) => {
-                                        e.currentTarget.style.color = '#5f6368';
-                                      }}
+                                    borderRadius: 12,
+                                    fontSize: 12,
+                                    fontWeight: 500,
+                                    background: displayStatus === 'Current' ? '#d1fae5' : displayStatus === 'Late' ? '#fee2e2' : displayStatus === 'Prospect' ? '#ede9fe' : '#f3f4f6',
+                                    color: displayStatus === 'Current' ? '#065f46' : displayStatus === 'Late' ? '#991b1b' : displayStatus === 'Prospect' ? '#5b21b6' : '#4b5563'
+                                  }}>
+                                    {displayStatus}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'center', gap: 8 }}>
+                                    <a 
+                                      href={`mailto:${tenant.email}`} 
+                                      onClick={e => e.stopPropagation()}
+                                      style={{ color: '#5f6368', textDecoration: 'none' }}
+                                      title="Email"
                                     >
-                                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                        <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
-                                        <polyline points="22,6 12,13 2,6"></polyline>
-                                      </svg>
+                                      ✉️
                                     </a>
-                                  )}
-                                  {(() => {
-                                    const phoneNumber = tenant.phone ? tenant.phone.trim() : '';
-                                    const hasPhone = phoneNumber && phoneNumber.replace(/\D/g, '').length > 0;
-                                    return hasPhone ? (
-                                      <a
-                                        href={`tel:${phoneNumber.replace(/\D/g, '')}`}
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="action-icon"
-                                        style={{
-                                          color: '#5f6368',
-                                          cursor: 'pointer',
-                                          padding: '4px',
-                                          display: 'flex',
-                                          alignItems: 'center',
-                                          transition: 'color 0.2s'
-                                        }}
-                                        onMouseEnter={(e) => {
-                                          e.currentTarget.style.color = '#1a73e8';
-                                        }}
-                                        onMouseLeave={(e) => {
-                                          e.currentTarget.style.color = '#5f6368';
-                                        }}
-                                      >
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                          <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
-                                        </svg>
-                                      </a>
-                                    ) : null;
-                                  })()}
-                                </div>
+                                    <a 
+                                      href={`tel:${tenant.phone}`} 
+                                      onClick={e => e.stopPropagation()}
+                                      style={{ color: '#5f6368', textDecoration: 'none' }}
+                                      title="Call"
+                                    >
+                                      📞
+                                    </a>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          {getFilteredTenants().length === 0 && (
+                            <tr>
+                              <td colSpan="6" style={{ padding: 40, textAlign: 'center', color: '#5f6368' }}>
+                                No tenants found
                               </td>
                             </tr>
-                          );
-                        })}
-                        {filteredTenants.length === 0 && (
-                          <tr>
-                            <td colSpan="6" style={{ padding: '40px', textAlign: 'center', color: '#5f6368' }}>
-                              No tenants found
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                 </div>
               )}
