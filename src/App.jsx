@@ -113,7 +113,7 @@ const initialMaintenanceRequests = [
 
 // Demo data for Pacific Northwest properties
 // Dev account email for admin features
-const DEV_EMAIL = 'stronsa@uw.edu'; // Change this to your dev account email
+const DEV_EMAIL = 'strongsa@uw.edu'; // Change this to your dev account email
 
 const demoProperties = [
   { name: 'Maple Heights Apartments', address: '1420 N 45th St, Seattle, WA 98103', type: 'Multi-family', units: 24, occupied: 22, monthlyRevenue: 42900, photo: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800&q=80' },
@@ -6854,7 +6854,7 @@ function App() {
           <div className="user-profile">
             <div 
               className="user-avatar"
-              onClick={() => setShowUserMenu(!showUserMenu)}
+              onClick={(e) => { e.stopPropagation(); setShowUserMenu(!showUserMenu); }}
             >
               {user?.email?.charAt(0).toUpperCase() || 'U'}
             </div>
