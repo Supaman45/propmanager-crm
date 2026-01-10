@@ -224,6 +224,10 @@ function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showHelpSupport, setShowHelpSupport] = useState(false);
+  const [helpCategory, setHelpCategory] = useState('all');
+  const [helpSearchQuery, setHelpSearchQuery] = useState('');
   const [darkMode, setDarkMode] = useState(() => {
     // Restore dark mode from localStorage on mount
     const savedDarkMode = localStorage.getItem('propli_darkMode');
@@ -515,6 +519,17 @@ function App() {
   const [applyingLateFees, setApplyingLateFees] = useState(false);
   const [showWaiveLateFeeModal, setShowWaiveLateFeeModal] = useState(null);
   const [waiveReason, setWaiveReason] = useState('');
+
+  // Vendors
+  const [vendors, setVendors] = useState([]);
+  const [vendorPayments, setVendorPayments] = useState([]);
+  const [showAddVendorModal, setShowAddVendorModal] = useState(false);
+  const [showEditVendorModal, setShowEditVendorModal] = useState(null);
+  const [showVendorDetail, setShowVendorDetail] = useState(null);
+  const [showAddPaymentModal, setShowAddPaymentModal] = useState(null);
+  const [vendorFilter, setVendorFilter] = useState('all');
+  const [vendorSpecialtyFilter, setVendorSpecialtyFilter] = useState('all');
+  const [vendorSearchQuery, setVendorSearchQuery] = useState('');
 
   // Generate unique access code
   const generateAccessCode = () => {
@@ -1217,6 +1232,12 @@ function App() {
 
       // Load tags
       await loadTags(userToUse);
+
+      // Load vendors
+      await loadVendors();
+
+      // Load vendor payments
+      await loadVendorPayments();
 
       // Load owners
       try {
@@ -2200,6 +2221,250 @@ function App() {
       showToast('Error loading maintenance requests', 'error');
     } finally {
       setMaintenanceRefreshing(false);
+    }
+  };
+
+  // Load vendors
+  const loadVendors = async () => {
+    const { data, error } = await supabase
+      .from('vendors')
+      .select('*')
+      .order('name');
+    if (error) {
+      console.error('Error loading vendors:', error);
+      return;
+    }
+    setVendors(data || []);
+  };
+
+  // Load vendor payments
+  const loadVendorPayments = async () => {
+    const { data, error } = await supabase
+      .from('vendor_payments')
+      .select('*, vendors(name, company), properties(name), maintenance_requests(title)')
+      .order('payment_date', { ascending: false });
+    if (error) {
+      console.error('Error loading vendor payments:', error);
+      return;
+    }
+    setVendorPayments(data || []);
+  };
+
+  // Vendor CRUD
+  const addVendor = async (vendorData) => {
+    const { data, error } = await supabase
+      .from('vendors')
+      .insert([{ ...vendorData, user_id: user.id }])
+      .select()
+      .single();
+    if (error) {
+      console.error('Error adding vendor:', error);
+      alert('Failed to add vendor');
+      return null;
+    }
+    setVendors(prev => [...prev, data]);
+    return data;
+  };
+
+  const updateVendor = async (id, updates) => {
+    const { data, error } = await supabase
+      .from('vendors')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) {
+      console.error('Error updating vendor:', error);
+      alert('Failed to update vendor');
+      return null;
+    }
+    setVendors(prev => prev.map(v => v.id === id ? data : v));
+    return data;
+  };
+
+  const deleteVendor = async (id) => {
+    const { error } = await supabase
+      .from('vendors')
+      .delete()
+      .eq('id', id);
+    if (error) {
+      console.error('Error deleting vendor:', error);
+      alert('Failed to delete vendor');
+      return false;
+    }
+    setVendors(prev => prev.filter(v => v.id !== id));
+    return true;
+  };
+
+  // Vendor Payment CRUD
+  const addVendorPayment = async (paymentData) => {
+    const { data, error } = await supabase
+      .from('vendor_payments')
+      .insert([{ ...paymentData, user_id: user.id }])
+      .select('*, vendors(name, company), properties(name), maintenance_requests(title)')
+      .single();
+    if (error) {
+      console.error('Error adding payment:', error);
+      alert('Failed to add payment');
+      return null;
+    }
+    setVendorPayments(prev => [data, ...prev]);
+    return data;
+  };
+
+  const updateVendorPayment = async (id, updates) => {
+    const { data, error } = await supabase
+      .from('vendor_payments')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('*, vendors(name, company), properties(name), maintenance_requests(title)')
+      .single();
+    if (error) {
+      console.error('Error updating payment:', error);
+      alert('Failed to update payment');
+      return null;
+    }
+    setVendorPayments(prev => prev.map(p => p.id === id ? data : p));
+    return data;
+  };
+
+  const deleteVendorPayment = async (id) => {
+    const { error } = await supabase
+      .from('vendor_payments')
+      .delete()
+      .eq('id', id);
+    if (error) {
+      console.error('Error deleting payment:', error);
+      alert('Failed to delete payment');
+      return false;
+    }
+    setVendorPayments(prev => prev.filter(p => p.id !== id));
+    return true;
+  };
+
+  // Assign vendor to maintenance request
+  const assignVendorToMaintenance = async (maintenanceId, vendorId, cost = null) => {
+    const { data, error } = await supabase
+      .from('maintenance_requests')
+      .update({ 
+        vendor_id: vendorId, 
+        vendor_cost: cost,
+        updated_at: new Date().toISOString() 
+      })
+      .eq('id', maintenanceId)
+      .select()
+      .single();
+    if (error) {
+      console.error('Error assigning vendor:', error);
+      alert('Failed to assign vendor');
+      return null;
+    }
+    setMaintenanceRequests(prev => prev.map(m => m.id === maintenanceId ? data : m));
+    return data;
+  };
+
+  // Vendor specialty options with SVG icons
+  const vendorSpecialties = [
+    { value: 'plumber', label: 'Plumber', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"></path><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"></path><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"></path><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"></path></svg> },
+    { value: 'electrician', label: 'Electrician', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> },
+    { value: 'hvac', label: 'HVAC', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.5 14.5 3 21"></path><path d="M3 3v18h18"></path><path d="M21 21H3"></path><path d="M14 4v9"></path><path d="M4 10h16"></path></svg> },
+    { value: 'landscaping', label: 'Landscaping', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 10a6 6 0 0 0 6-6H6a6 6 0 0 0 6 6Z"></path><path d="M12 10v12"></path><path d="M8 22h8"></path></svg> },
+    { value: 'general', label: 'General Contractor', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 12-8.5 8.5c-.83.83-2.17.83-3 0 0 0 0 0 0 0a2.12 2.12 0 0 1 0-3L12 9"></path><path d="M17.64 15 22 10.64"></path><path d="m20.91 11.7-1.25-1.25c-.6-.6-.93-1.4-.93-2.25v-.86L16.01 4.6a5.56 5.56 0 0 0-3.94-1.64H9l.92.82A6.18 6.18 0 0 1 12 8.4v1.56l2 2h2.47l2.26 1.91"></path></svg> },
+    { value: 'roofing', label: 'Roofing', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg> },
+    { value: 'cleaning', label: 'Cleaning', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 11-6 6v3h9l3-3"></path><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"></path></svg> },
+    { value: 'pest_control', label: 'Pest Control', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line></svg> },
+    { value: 'appliance', label: 'Appliance Repair', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v10"></path><path d="M18.4 6.6a9 9 0 1 1-12.77.04"></path></svg> },
+    { value: 'other', label: 'Other', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg> }
+  ];
+
+  const getSpecialtyInfo = (specialty) => {
+    return vendorSpecialties.find(s => s.value === specialty) || { value: specialty, label: specialty, icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg> };
+  };
+
+  // Payment method options
+  const paymentMethods = [
+    { value: 'check', label: 'Check' },
+    { value: 'ach', label: 'ACH Transfer' },
+    { value: 'credit_card', label: 'Credit Card' },
+    { value: 'cash', label: 'Cash' },
+    { value: 'other', label: 'Other' }
+  ];
+
+  // Calculate vendor stats
+  const getVendorStats = (vendorId) => {
+    const payments = vendorPayments.filter(p => p.vendor_id === vendorId);
+    const jobs = maintenanceRequests.filter(m => m.vendor_id === vendorId);
+    const totalPaid = payments.filter(p => p.status === 'paid').reduce((sum, p) => sum + Number(p.amount), 0);
+    const pendingPayments = payments.filter(p => p.status === 'pending').reduce((sum, p) => sum + Number(p.amount), 0);
+    
+    return {
+      totalJobs: jobs.length,
+      completedJobs: jobs.filter(j => j.status === 'completed').length,
+      openJobs: jobs.filter(j => j.status === 'open' || j.status === 'in_progress').length,
+      totalPaid,
+      pendingPayments,
+      payments
+    };
+  };
+
+  // Render star rating
+  const renderStars = (rating, interactive = false, onChange = null) => {
+    return (
+      <div style={{ display: 'flex', gap: '2px' }}>
+        {[1, 2, 3, 4, 5].map(star => (
+          <span
+            key={star}
+            onClick={interactive && onChange ? () => onChange(star) : undefined}
+            style={{
+              cursor: interactive ? 'pointer' : 'default',
+              color: star <= rating ? '#f59e0b' : '#e5e7eb',
+              fontSize: '16px'
+            }}
+          >
+            ★
+          </span>
+        ))}
+      </div>
+    );
+  };
+
+  // Extract display name - use "Seri" or extract first name properly
+  const getUserDisplayName = () => {
+    const email = user?.email || '';
+    const localPart = email.split('@')[0] || 'there';
+    
+    // If email starts with common patterns, extract first name
+    // Handle formats: seristrong, seri.strong, seri_strong, strongsa
+    if (localPart.includes('.')) {
+      return localPart.split('.')[0].charAt(0).toUpperCase() + localPart.split('.')[0].slice(1);
+    }
+    if (localPart.includes('_')) {
+      return localPart.split('_')[0].charAt(0).toUpperCase() + localPart.split('_')[0].slice(1);
+    }
+    
+    // For concatenated names or usernames, just capitalize and use first 4-6 reasonable chars
+    // Or you can hardcode your name here:
+    return 'Seri';
+    
+    // const name = localPart.charAt(0).toUpperCase() + localPart.slice(1, 5);
+    // return name;
+  };
+
+  // Handle modal close with unsaved changes check
+  const handleModalClose = (formId, closeFunction) => {
+    const form = document.getElementById(formId);
+    if (form) {
+      const formData = new FormData(form);
+      const hasData = Array.from(formData.values()).some(value => value && value !== '');
+      if (hasData) {
+        if (confirm('You have unsaved changes. Are you sure you want to close?')) {
+          closeFunction();
+        }
+      } else {
+        closeFunction();
+      }
+    } else {
+      closeFunction();
     }
   };
 
@@ -6851,23 +7116,235 @@ function App() {
           />
         </div>
         <div className="header-right">
-          <div className="user-profile">
-            <div 
-              className="user-avatar"
-              onClick={(e) => { e.stopPropagation(); setShowUserMenu(!showUserMenu); }}
+          {/* User Profile Dropdown */}
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setShowProfileMenu(!showProfileMenu)}
+              style={{
+                width: '44px',
+                height: '44px',
+                borderRadius: '50%',
+                background: '#1a73e8',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'white',
+                fontSize: '18px',
+                fontWeight: '600'
+              }}
             >
               {user?.email?.charAt(0).toUpperCase() || 'U'}
-            </div>
-            {showUserMenu && (
-              <div className="user-menu">
-                <div className="user-menu-item" style={{ padding: '16px', borderBottom: '1px solid #dadce0' }}>
-                  <div style={{ fontWeight: 500, marginBottom: '4px' }}>{user?.email || 'User'}</div>
-                  <div style={{ fontSize: '12px', color: '#5f6368' }}>Property Manager</div>
+            </button>
+            
+            {showProfileMenu && (
+              <>
+                {/* Overlay to close menu when clicking outside */}
+                <div 
+                  onClick={() => setShowProfileMenu(false)}
+                  style={{
+                    position: 'fixed',
+                    inset: 0,
+                    zIndex: 998
+                  }}
+                />
+                
+                {/* Dropdown Menu */}
+                <div style={{
+                  position: 'absolute',
+                  top: '54px',
+                  right: 0,
+                  width: '280px',
+                  background: 'white',
+                  borderRadius: '12px',
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                  border: '1px solid #e2e8f0',
+                  zIndex: 999,
+                  overflow: 'hidden'
+                }}>
+                  {/* User Info Header */}
+                  <div style={{
+                    padding: '20px',
+                    borderBottom: '1px solid #e2e8f0',
+                    background: '#f8fafc'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                      <div style={{
+                        width: '56px',
+                        height: '56px',
+                        borderRadius: '50%',
+                        background: '#1a73e8',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'white',
+                        fontSize: '24px',
+                        fontWeight: '600'
+                      }}>
+                        {user?.email?.charAt(0).toUpperCase() || 'U'}
+                      </div>
+                      <div>
+                        <p style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          {getUserDisplayName()}
+                        </p>
+                        <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>
+                          {user?.email || 'No email'}
+                        </p>
+                        <span style={{
+                          display: 'inline-block',
+                          marginTop: '6px',
+                          padding: '3px 8px',
+                          background: '#dbeafe',
+                          color: '#1e40af',
+                          borderRadius: '4px',
+                          fontSize: '11px',
+                          fontWeight: '500'
+                        }}>
+                          Admin
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Menu Items */}
+                  <div style={{ padding: '8px' }}>
+                    <button
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        setActiveTab('settings');
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '12px 16px',
+                        background: 'none',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        color: '#374151',
+                        fontSize: '14px',
+                        textAlign: 'left'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                      My Profile
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        setActiveTab('settings');
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '12px 16px',
+                        background: 'none',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        color: '#374151',
+                        fontSize: '14px',
+                        textAlign: 'left'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                      Settings
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        // Add admin panel navigation if you have one
+                        setActiveTab('settings');
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '12px 16px',
+                        background: 'none',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        color: '#374151',
+                        fontSize: '14px',
+                        textAlign: 'left'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                      Admin Panel
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        setShowHelpSupport(true);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '12px 16px',
+                        background: 'none',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        color: '#374151',
+                        fontSize: '14px',
+                        textAlign: 'left'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#f1f5f9'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                      Help & Support
+                    </button>
+                  </div>
+                  
+                  {/* Logout */}
+                  <div style={{ padding: '8px', borderTop: '1px solid #e2e8f0' }}>
+                    <button
+                      onClick={async () => {
+                        setShowProfileMenu(false);
+                        await supabase.auth.signOut();
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '12px 16px',
+                        background: 'none',
+                        border: 'none',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        color: '#dc2626',
+                        fontSize: '14px',
+                        textAlign: 'left'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = '#fef2f2'}
+                      onMouseLeave={(e) => e.currentTarget.style.background = 'none'}
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                      Log Out
+                    </button>
+                  </div>
                 </div>
-                <button className="user-menu-item" onClick={handleSignOut}>
-                  Sign out
-                </button>
-              </div>
+              </>
             )}
           </div>
         </div>
@@ -6896,6 +7373,7 @@ function App() {
                 { id: 'properties', icon: '🏠', label: 'Properties' },
                 { id: 'owners', icon: '👤', label: 'Owners' },
                 { id: 'maintenance', icon: '🔧', label: 'Maintenance' },
+                { id: 'vendors', icon: '👷', label: 'Vendors' },
                 { id: 'late-fees', icon: '💰', label: 'Late Fees' },
                 { id: 'schedule', icon: '📅', label: 'Schedule' },
                 { id: 'reports', icon: '📈', label: 'Reports' },
@@ -7036,6 +7514,26 @@ function App() {
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
               {!sidebarCollapsed && <span>Maintenance</span>}
+            </div>
+            
+            <div
+              onClick={() => setActiveTab('vendors')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 16px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                background: activeTab === 'vendors' ? '#e8f0fe' : 'transparent',
+                color: activeTab === 'vendors' ? '#1a73e8' : '#4b5563',
+                fontWeight: activeTab === 'vendors' ? 600 : 400,
+                marginBottom: 4,
+                transition: 'background 0.2s'
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+              {!sidebarCollapsed && <span>Vendors</span>}
             </div>
             
             <div
@@ -7265,9 +7763,7 @@ function App() {
                   {(() => {
                     const hour = new Date().getHours();
                     const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-                    const rawName = user?.email?.split('@')[0] || 'there';
-                    // Extract first name - capitalize first letter
-                    const formattedName = rawName.charAt(0).toUpperCase() + rawName.slice(1, 5).toLowerCase();
+                    const formattedName = getUserDisplayName();
                     const today = new Date();
                     const dateString = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
                     
@@ -10865,6 +11361,371 @@ function App() {
                 </>
               )}
 
+              {/* Vendors Tab */}
+              {activeTab === 'vendors' && (
+                <div>
+                  {/* Header */}
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center', 
+                    marginBottom: '24px' 
+                  }}>
+                    <div>
+                      <h1 style={{ fontSize: '24px', fontWeight: '600', color: '#1e293b', margin: 0 }}>
+                        Vendor Directory
+                      </h1>
+                      <p style={{ color: '#64748b', fontSize: '14px', marginTop: '4px' }}>
+                        Manage contractors and track payments
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setShowAddVendorModal(true)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '10px 16px',
+                        background: '#1a73e8',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <span>+</span> Add Vendor
+                    </button>
+                  </div>
+
+                  {/* Stats Cards */}
+                  <div style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: 'repeat(4, 1fr)', 
+                    gap: '16px', 
+                    marginBottom: '24px' 
+                  }}>
+                    {[
+                      { 
+                        label: 'Total Vendors', 
+                        value: vendors.length,
+                        sub: `${vendors.filter(v => v.status === 'active').length} active`
+                      },
+                      { 
+                        label: 'Preferred Vendors', 
+                        value: vendors.filter(v => v.is_preferred).length,
+                        sub: 'marked as preferred'
+                      },
+                      { 
+                        label: 'Pending Payments', 
+                        value: `$${vendorPayments.filter(p => p.status === 'pending').reduce((sum, p) => sum + Number(p.amount), 0).toLocaleString()}`,
+                        sub: `${vendorPayments.filter(p => p.status === 'pending').length} payments`
+                      },
+                      { 
+                        label: 'Paid This Month', 
+                        value: `$${vendorPayments.filter(p => {
+                          const paymentDate = new Date(p.payment_date);
+                          const now = new Date();
+                          return p.status === 'paid' && 
+                            paymentDate.getMonth() === now.getMonth() && 
+                            paymentDate.getFullYear() === now.getFullYear();
+                        }).reduce((sum, p) => sum + Number(p.amount), 0).toLocaleString()}`,
+                        sub: 'this month'
+                      }
+                    ].map((stat, i) => (
+                      <div key={i} style={{
+                        background: 'white',
+                        borderRadius: '12px',
+                        padding: '20px',
+                        border: '1px solid #e2e8f0'
+                      }}>
+                        <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>{stat.label}</p>
+                        <p style={{ fontSize: '28px', fontWeight: '600', color: '#1e293b', margin: '8px 0 4px' }}>
+                          {stat.value}
+                        </p>
+                        <p style={{ color: '#94a3b8', fontSize: '12px', margin: 0 }}>{stat.sub}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Filters */}
+                  <div style={{ 
+                    display: 'flex', 
+                    gap: '12px', 
+                    marginBottom: '20px',
+                    flexWrap: 'wrap'
+                  }}>
+                    <input
+                      type="text"
+                      placeholder="Search vendors..."
+                      value={vendorSearchQuery}
+                      onChange={(e) => setVendorSearchQuery(e.target.value)}
+                      style={{
+                        padding: '10px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        width: '240px'
+                      }}
+                    />
+                    <select
+                      value={vendorFilter}
+                      onChange={(e) => setVendorFilter(e.target.value)}
+                      style={{
+                        padding: '10px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        background: 'white'
+                      }}
+                    >
+                      <option value="all">All Status</option>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                    <select
+                      value={vendorSpecialtyFilter}
+                      onChange={(e) => setVendorSpecialtyFilter(e.target.value)}
+                      style={{
+                        padding: '10px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        background: 'white'
+                      }}
+                    >
+                      <option value="all">All Specialties</option>
+                      {vendorSpecialties.map(s => (
+                        <option key={s.value} value={s.value}>{s.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Vendor Grid */}
+                  <div style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', 
+                    gap: '16px' 
+                  }}>
+                    {vendors
+                      .filter(v => {
+                        if (vendorFilter !== 'all' && v.status !== vendorFilter) return false;
+                        if (vendorSpecialtyFilter !== 'all' && v.specialty !== vendorSpecialtyFilter) return false;
+                        if (vendorSearchQuery) {
+                          const query = vendorSearchQuery.toLowerCase();
+                          return (
+                            v.name?.toLowerCase().includes(query) ||
+                            v.company?.toLowerCase().includes(query) ||
+                            v.email?.toLowerCase().includes(query) ||
+                            v.phone?.includes(query)
+                          );
+                        }
+                        return true;
+                      })
+                      .map(vendor => {
+                        const stats = getVendorStats(vendor.id);
+                        const specialtyInfo = getSpecialtyInfo(vendor.specialty);
+                        
+                        return (
+                          <div
+                            key={vendor.id}
+                            onClick={() => setShowVendorDetail(vendor)}
+                            style={{
+                              background: 'white',
+                              borderRadius: '12px',
+                              border: '1px solid #e2e8f0',
+                              padding: '20px',
+                              cursor: 'pointer',
+                              transition: 'border-color 0.15s ease'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.borderColor = '#1a73e8'}
+                            onMouseLeave={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
+                          >
+                            {/* Header */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                <div style={{
+                                  width: '48px',
+                                  height: '48px',
+                                  borderRadius: '10px',
+                                  background: '#f1f5f9',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  color: '#64748b'
+                                }}>
+                                  {specialtyInfo.icon}
+                                </div>
+                                <div>
+                                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                                    {vendor.name}
+                                  </h3>
+                                  {vendor.company && (
+                                    <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b' }}>
+                                      {vendor.company}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                {vendor.is_preferred && (
+                                  <span style={{
+                                    padding: '4px 8px',
+                                    background: '#fef3c7',
+                                    color: '#92400e',
+                                    borderRadius: '6px',
+                                    fontSize: '11px',
+                                    fontWeight: '500'
+                                  }}>
+                                    Preferred
+                                  </span>
+                                )}
+                                <span style={{
+                                  padding: '4px 8px',
+                                  background: vendor.status === 'active' ? '#dcfce7' : '#f1f5f9',
+                                  color: vendor.status === 'active' ? '#166534' : '#64748b',
+                                  borderRadius: '6px',
+                                  fontSize: '11px',
+                                  fontWeight: '500'
+                                }}>
+                                  {vendor.status === 'active' ? 'Active' : 'Inactive'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Specialty */}
+                            <p style={{ 
+                              margin: '0 0 12px', 
+                              fontSize: '13px', 
+                              color: '#1a73e8',
+                              fontWeight: '500'
+                            }}>
+                              {specialtyInfo.label}
+                            </p>
+
+                            {/* Rating */}
+                            {vendor.rating && (
+                              <div style={{ marginBottom: '12px' }}>
+                                {renderStars(vendor.rating)}
+                              </div>
+                            )}
+
+                            {/* Contact Info */}
+                            <div style={{ 
+                              display: 'flex', 
+                              gap: '16px', 
+                              fontSize: '13px', 
+                              color: '#64748b',
+                              marginBottom: '12px'
+                            }}>
+                              {vendor.phone && (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                                  {vendor.phone}
+                                </span>
+                              )}
+                              {vendor.email && (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                                  {vendor.email}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Stats */}
+                            <div style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(3, 1fr)',
+                              gap: '8px',
+                              padding: '12px',
+                              background: '#f8fafc',
+                              borderRadius: '8px',
+                              fontSize: '12px'
+                            }}>
+                              <div style={{ textAlign: 'center' }}>
+                                <p style={{ margin: 0, color: '#64748b' }}>Jobs</p>
+                                <p style={{ margin: '4px 0 0', fontWeight: '600', color: '#1e293b' }}>
+                                  {stats.totalJobs}
+                                </p>
+                              </div>
+                              <div style={{ textAlign: 'center' }}>
+                                <p style={{ margin: 0, color: '#64748b' }}>Total Paid</p>
+                                <p style={{ margin: '4px 0 0', fontWeight: '600', color: '#1e293b' }}>
+                                  ${stats.totalPaid.toLocaleString()}
+                                </p>
+                              </div>
+                              <div style={{ textAlign: 'center' }}>
+                                <p style={{ margin: 0, color: '#64748b' }}>Pending</p>
+                                <p style={{ margin: '4px 0 0', fontWeight: '600', color: stats.pendingPayments > 0 ? '#dc2626' : '#1e293b' }}>
+                                  ${stats.pendingPayments.toLocaleString()}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Rate */}
+                            {(vendor.hourly_rate || vendor.flat_rate) && (
+                              <p style={{ 
+                                margin: '12px 0 0', 
+                                fontSize: '13px', 
+                                color: '#64748b' 
+                              }}>
+                                {vendor.hourly_rate && `$${vendor.hourly_rate}/hr`}
+                                {vendor.hourly_rate && vendor.flat_rate && ' | '}
+                                {vendor.flat_rate && `$${vendor.flat_rate} flat`}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+
+                  {/* Empty State */}
+                  {vendors.length === 0 && (
+                    <div style={{
+                      textAlign: 'center',
+                      padding: '60px 20px',
+                      background: 'white',
+                      borderRadius: '12px',
+                      border: '1px solid #e2e8f0'
+                    }}>
+                      <div style={{ 
+                        width: '64px', 
+                        height: '64px', 
+                        margin: '0 auto 16px',
+                        background: '#f1f5f9',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#64748b'
+                      }}>
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+                      </div>
+                      <h3 style={{ margin: '0 0 8px', color: '#1e293b' }}>No vendors yet</h3>
+                      <p style={{ margin: '0 0 20px', color: '#64748b' }}>
+                        Add your first vendor to start tracking contractors and payments.
+                      </p>
+                      <button
+                        onClick={() => setShowAddVendorModal(true)}
+                        style={{
+                          padding: '10px 20px',
+                          background: '#1a73e8',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '8px',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Add First Vendor
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {activeTab === 'reports' && (() => {
                 const stats = getReportsStats();
                 const totalUnits = properties.reduce((sum, p) => sum + (p.units || 1), 0);
@@ -14401,10 +15262,10 @@ function App() {
           )}
 
       {(showAddModal || editingTenant) && (
-        <div className="modal-overlay" onClick={() => {
+        <div className="modal-overlay" onClick={() => handleModalClose('tenant-form', () => {
           setShowAddModal(false);
           setEditingTenant(null);
-        }}>
+        })}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>{editingTenant ? 'Edit Tenant' : 'Add New Tenant'}</h2>
@@ -14414,7 +15275,7 @@ function App() {
               }}>×</button>
             </div>
             <div className="modal-body">
-              <form onSubmit={editingTenant ? handleUpdateTenant : handleAddTenant}>
+              <form id="tenant-form" onSubmit={editingTenant ? handleUpdateTenant : handleAddTenant}>
                 <div className="two-col">
                   <div className="form-group">
                     <RequiredLabel>Full Name</RequiredLabel>
@@ -15156,12 +16017,12 @@ function App() {
         if (!tenant) return null;
         
         return (
-          <div className="modal-overlay" onClick={() => {
+          <div className="modal-overlay" onClick={() => handleModalClose('payment-request-form', () => {
             setShowPaymentRequestModal(null);
             setPaymentRequest({ amount: '', dueDate: '', note: '' });
             setPaymentLinkCopied(false);
             setCreatedPaymentLink('');
-          }}>
+          })}>
             <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
               <div className="modal-header">
                 <h2>Request Payment - {tenant.name}</h2>
@@ -15173,7 +16034,7 @@ function App() {
                 }}>×</button>
               </div>
               <div className="modal-content">
-                <form onSubmit={async (e) => {
+                <form id="payment-request-form" onSubmit={async (e) => {
                   e.preventDefault();
                   if (!paymentRequest.amount || !paymentRequest.dueDate) {
                     alert('Please fill in amount and due date');
@@ -15415,10 +16276,10 @@ function App() {
       )}
 
       {showSelectTenantForPayment && (
-        <div className="modal-overlay" onClick={() => {
+        <div className="modal-overlay" onClick={() => handleModalClose('select-tenant-form', () => {
           setShowSelectTenantForPayment(false);
           setPaymentTenantSearch('');
-        }}>
+        })}>
           <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
             <div className="modal-header">
               <h2>Select Tenant for Payment</h2>
@@ -15428,17 +16289,20 @@ function App() {
               }}>×</button>
             </div>
             <div className="modal-content">
-              <div className="form-group full-width">
-                <label>Search Tenant</label>
-                <input
-                  type="text"
-                  placeholder="Search by name, property, or email..."
-                  value={paymentTenantSearch}
-                  onChange={(e) => setPaymentTenantSearch(e.target.value)}
-                  className="search-bar"
-                  autoFocus
-                />
-              </div>
+              <form id="select-tenant-form">
+                <div className="form-group full-width">
+                  <label>Search Tenant</label>
+                  <input
+                    name="search"
+                    type="text"
+                    placeholder="Search by name, property, or email..."
+                    value={paymentTenantSearch}
+                    onChange={(e) => setPaymentTenantSearch(e.target.value)}
+                    className="search-bar"
+                    autoFocus
+                  />
+                </div>
+              </form>
               <div className="tenant-selection-list" style={{ maxHeight: '400px', overflowY: 'auto', marginTop: '16px' }}>
                 {(() => {
                   const filteredTenants = tenants.filter(t => {
@@ -15658,14 +16522,14 @@ function App() {
       )}
 
       {showExpenseModal && (
-        <div className="modal-overlay" onClick={() => setShowExpenseModal(null)}>
+        <div className="modal-overlay" onClick={() => handleModalClose('expense-form', () => setShowExpenseModal(null))}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Add Expense - {properties.find(p => p.id === showExpenseModal)?.address}</h2>
               <button className="close-btn" onClick={() => setShowExpenseModal(null)}>×</button>
             </div>
             <div className="modal-body">
-              <form onSubmit={(e) => handleAddExpense(showExpenseModal, e)}>
+              <form id="expense-form" onSubmit={(e) => handleAddExpense(showExpenseModal, e)}>
                 <div className="form-group">
                   <label className="form-label">Description</label>
                   <input
@@ -15728,14 +16592,14 @@ function App() {
       )}
 
       {editingProperty && (
-        <div className="modal-overlay" onClick={() => setEditingProperty(null)}>
+        <div className="modal-overlay" onClick={() => handleModalClose('edit-property-form', () => setEditingProperty(null))}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Edit Property</h2>
               <button className="close-btn" onClick={() => setEditingProperty(null)}>×</button>
             </div>
             <div className="modal-body">
-              <form onSubmit={handleUpdateProperty}>
+              <form id="edit-property-form" onSubmit={handleUpdateProperty}>
                 <div className="form-group">
                   <RequiredLabel>Address</RequiredLabel>
                   <input
@@ -15868,14 +16732,14 @@ function App() {
       )}
 
       {showAddPropertyModal && (
-        <div className="modal-overlay" onClick={() => setShowAddPropertyModal(false)}>
+        <div className="modal-overlay" onClick={() => handleModalClose('property-form', () => setShowAddPropertyModal(false))}>
           <div className="modal form-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Add New Property</h2>
               <button className="close-btn" onClick={() => setShowAddPropertyModal(false)}>×</button>
             </div>
             <div className="modal-content">
-              <form onSubmit={handleAddProperty}>
+              <form id="property-form" onSubmit={handleAddProperty}>
                 <div className="form-grid">
                 <div className="form-group full-width">
                   <RequiredLabel>Address</RequiredLabel>
@@ -16046,14 +16910,14 @@ function App() {
       )}
 
       {showAddMaintenanceModal && (
-        <div className="modal-overlay" onClick={() => setShowAddMaintenanceModal(false)}>
+        <div className="modal-overlay" onClick={() => handleModalClose('maintenance-form', () => setShowAddMaintenanceModal(false))}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>New Maintenance Request</h2>
               <button className="close-btn" onClick={() => setShowAddMaintenanceModal(false)}>×</button>
             </div>
             <div className="modal-body">
-              <form onSubmit={handleAddMaintenanceRequest}>
+              <form id="maintenance-form" onSubmit={handleAddMaintenanceRequest}>
                 <div className="form-group">
                   <RequiredLabel>Issue</RequiredLabel>
                   <input
@@ -16136,13 +17000,13 @@ function App() {
       )}
 
       {showMoveOutModal && (
-        <div className="modal-overlay" onClick={() => setShowMoveOutModal(null)}>
+        <div className="modal-overlay" onClick={() => handleModalClose('moveout-form', () => setShowMoveOutModal(null))}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Record Move-Out - {tenants.find(t => t.id === showMoveOutModal)?.name}</h2>
               <button className="close-btn" onClick={() => setShowMoveOutModal(null)}>×</button>
             </div>
-            <form onSubmit={(e) => handleMoveOut(showMoveOutModal, e)}>
+            <form id="moveout-form" onSubmit={(e) => handleMoveOut(showMoveOutModal, e)}>
               <div className="form-grid">
                 <div className="form-group">
                   <label>Move-Out Date</label>
@@ -16249,13 +17113,14 @@ function App() {
       )}
 
       {showReminderModal && (
-        <div className="modal-overlay" onClick={() => setShowReminderModal(null)}>
+        <div className="modal-overlay" onClick={() => handleModalClose('reminder-form', () => setShowReminderModal(null))}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Send Rent Reminder</h2>
               <button className="close-btn" onClick={() => setShowReminderModal(null)}>×</button>
             </div>
             <div className="modal-content">
+              <form id="reminder-form" style={{ display: 'none' }}></form>
               <div className="reminder-email-preview">
                 <div className="email-field">
                   <label><strong>To:</strong></label>
@@ -16693,6 +17558,203 @@ function App() {
                 </div>
               </div>
 
+              <div style={{ height: '1px', background: '#e5e7eb', marginBottom: '24px' }}></div>
+
+              {/* Vendor Assignment Section */}
+              <div style={{ marginTop: '20px', padding: '16px', background: '#f8fafc', borderRadius: '10px' }}>
+                <h4 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '600', color: '#374151' }}>
+                  Assigned Vendor
+                </h4>
+                {selectedMaintenanceRequest.vendor_id ? (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{
+                          width: '40px',
+                          height: '40px',
+                          borderRadius: '8px',
+                          background: '#e2e8f0',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#64748b'
+                        }}>
+                          {(() => {
+                            const vendor = vendors.find(v => v.id === selectedMaintenanceRequest.vendor_id);
+                            if (vendor) {
+                              const specialtyInfo = getSpecialtyInfo(vendor.specialty);
+                              return specialtyInfo.icon;
+                            }
+                            return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>;
+                          })()}
+                        </div>
+                        <div>
+                          <p style={{ margin: 0, fontSize: '14px', fontWeight: '500', color: '#1e293b' }}>
+                            {vendors.find(v => v.id === selectedMaintenanceRequest.vendor_id)?.name || 'Unknown Vendor'}
+                          </p>
+                          <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748b' }}>
+                            {vendors.find(v => v.id === selectedMaintenanceRequest.vendor_id)?.company || 
+                             getSpecialtyInfo(vendors.find(v => v.id === selectedMaintenanceRequest.vendor_id)?.specialty)?.label}
+                          </p>
+                          {selectedMaintenanceRequest.vendor_cost && (
+                            <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#1a73e8', fontWeight: '500' }}>
+                              Cost: ${Number(selectedMaintenanceRequest.vendor_cost).toLocaleString()}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => assignVendorToMaintenance(selectedMaintenanceRequest.id, null, null)}
+                        style={{
+                          padding: '6px 12px',
+                          background: 'white',
+                          border: '1px solid #fecaca',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          cursor: 'pointer',
+                          color: '#dc2626'
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const vendor = vendors.find(v => v.id === selectedMaintenanceRequest.vendor_id);
+                        if (vendor && vendor.email) {
+                          const property = properties.find(p => p.id === selectedMaintenanceRequest.property_id);
+                          const subject = encodeURIComponent(`Work Order: ${selectedMaintenanceRequest.title}`);
+                          const body = encodeURIComponent(
+`Hello ${vendor.name},
+
+You have been assigned a new work order.
+
+Property: ${property?.name || 'N/A'}
+Issue: ${selectedMaintenanceRequest.title}
+Description: ${selectedMaintenanceRequest.description || 'No description provided'}
+Priority: ${selectedMaintenanceRequest.priority || 'Normal'}
+
+Please contact us to schedule the work.
+
+Thank you.`
+                          );
+                          window.open(`mailto:${vendor.email}?subject=${subject}&body=${body}`, '_blank');
+                        } else {
+                          alert('No email address on file for this vendor.');
+                        }
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '10px',
+                        background: '#1a73e8',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        fontWeight: '500',
+                        cursor: 'pointer',
+                        color: 'white',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px'
+                      }}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                      Email Work Order to Vendor
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <select
+                      id="vendor-select"
+                      defaultValue=""
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        background: 'white',
+                        boxSizing: 'border-box',
+                        marginBottom: '12px'
+                      }}
+                    >
+                      <option value="">Select a vendor...</option>
+                      {vendors
+                        .filter(v => v.status === 'active')
+                        .map(v => (
+                          <option key={v.id} value={v.id}>
+                            {v.name} ({v.company || getSpecialtyInfo(v.specialty).label})
+                          </option>
+                        ))}
+                    </select>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        onClick={async () => {
+                          const select = document.getElementById('vendor-select');
+                          const vendorId = select?.value;
+                          if (!vendorId) {
+                            alert('Please select a vendor first.');
+                            return;
+                          }
+                          const cost = prompt('Enter estimated cost (optional):');
+                          await assignVendorToMaintenance(
+                            selectedMaintenanceRequest.id,
+                            Number(vendorId),
+                            cost ? Number(cost) : null
+                          );
+                          
+                          // Ask to send email
+                          const vendor = vendors.find(v => v.id === Number(vendorId));
+                          if (vendor?.email) {
+                            if (confirm(`Vendor assigned. Would you like to email the work order to ${vendor.name}?`)) {
+                              const property = properties.find(p => p.id === selectedMaintenanceRequest.property_id);
+                              const subject = encodeURIComponent(`Work Order: ${selectedMaintenanceRequest.title}`);
+                              const body = encodeURIComponent(
+`Hello ${vendor.name},
+
+You have been assigned a new work order.
+
+Property: ${property?.name || 'N/A'}
+Issue: ${selectedMaintenanceRequest.title}
+Description: ${selectedMaintenanceRequest.description || 'No description provided'}
+Priority: ${selectedMaintenanceRequest.priority || 'Normal'}
+
+Please contact us to schedule the work.
+
+Thank you.`
+                              );
+                              window.open(`mailto:${vendor.email}?subject=${subject}&body=${body}`, '_blank');
+                            }
+                          }
+                        }}
+                        style={{
+                          flex: 1,
+                          padding: '10px',
+                          background: '#1a73e8',
+                          border: 'none',
+                          borderRadius: '8px',
+                          fontSize: '13px',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                          color: 'white'
+                        }}
+                      >
+                        Assign Vendor
+                      </button>
+                    </div>
+                    {vendors.filter(v => v.status === 'active').length === 0 && (
+                      <p style={{ margin: '8px 0 0', fontSize: '12px', color: '#64748b' }}>
+                        No active vendors. <span 
+                          onClick={() => setActiveTab('vendors')} 
+                          style={{ color: '#1a73e8', cursor: 'pointer' }}
+                        >Add a vendor</span> first.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
             </div>
             <div className="slide-panel-footer" style={{ position: 'relative' }}>
               <div style={{ position: 'relative' }}>
@@ -16751,81 +17813,6 @@ function App() {
                   </div>
                 )}
               </div>
-              <div style={{ position: 'relative' }}>
-                <button 
-                  className="btn btn-secondary" 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowStatusDropdown(false);
-                    setShowVendorInput(!showVendorInput);
-                  }}
-                >
-                  Assign Vendor
-                </button>
-                {showVendorInput && (
-                  <div style={{
-                    position: 'absolute',
-                    bottom: '100%',
-                    left: 0,
-                    right: 0,
-                    background: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: 8,
-                    padding: 16,
-                    marginBottom: 8,
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                    zIndex: 1000
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  >
-                    <input
-                      type="text"
-                      placeholder="Enter vendor name..."
-                      value={vendorName}
-                      onChange={(e) => setVendorName(e.target.value)}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter' && vendorName.trim()) {
-                          showToast('Vendor Directory coming soon - Vendor: ' + vendorName, 'info');
-                          setVendorName('');
-                          setShowVendorInput(false);
-                        }
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '8px 12px',
-                        border: '1px solid #e5e7eb',
-                        borderRadius: 4,
-                        fontSize: 14,
-                        outline: 'none'
-                      }}
-                      autoFocus
-                    />
-                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                      <button 
-                        className="btn btn-primary"
-                        onClick={() => {
-                          if (vendorName.trim()) {
-                            showToast('Vendor Directory coming soon - Vendor: ' + vendorName, 'info');
-                            setVendorName('');
-                          }
-                          setShowVendorInput(false);
-                        }}
-                      >
-                        Assign
-                      </button>
-                      <button 
-                        className="btn btn-secondary"
-                        onClick={() => {
-                          setVendorName('');
-                          setShowVendorInput(false);
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
               <button 
                 className="btn btn-primary" 
                 onClick={(e) => {
@@ -16862,14 +17849,14 @@ function App() {
 
       {/* Add Owner Modal */}
       {showAddOwnerModal && (
-        <div className="modal-overlay" onClick={() => setShowAddOwnerModal(false)}>
+        <div className="modal-overlay" onClick={() => handleModalClose('owner-form', () => setShowAddOwnerModal(false))}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Add Owner</h2>
               <button className="close-btn" onClick={() => setShowAddOwnerModal(false)}>×</button>
             </div>
             <div className="modal-body">
-              <form onSubmit={handleAddOwner}>
+              <form id="owner-form" onSubmit={handleAddOwner}>
                 <div className="form-group">
                   <label className="form-label">Name *</label>
                   <input
@@ -16947,10 +17934,10 @@ function App() {
 
       {/* Edit Owner Modal */}
       {showEditOwnerModal && selectedOwner && (
-        <div className="modal-overlay" onClick={() => {
+        <div className="modal-overlay" onClick={() => handleModalClose('edit-owner-form', () => {
           setShowEditOwnerModal(false);
           setSelectedOwner(null);
-        }}>
+        })}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Edit Owner</h2>
@@ -16960,7 +17947,7 @@ function App() {
               }}>×</button>
             </div>
             <div className="modal-body">
-              <form onSubmit={handleUpdateOwner}>
+              <form id="edit-owner-form" onSubmit={handleUpdateOwner}>
                 <div className="form-group">
                   <label className="form-label">Name *</label>
                   <input
@@ -17262,47 +18249,51 @@ function App() {
 
       {/* Assign Property Modal */}
       {showAssignPropertyModal && selectedOwner && (
-        <div className='modal-overlay' onClick={() => setShowAssignPropertyModal(false)} style={{ zIndex: 1100 }}>
+        <div className='modal-overlay' onClick={() => handleModalClose('assign-property-form', () => setShowAssignPropertyModal(false))} style={{ zIndex: 1100 }}>
           <div className='modal' onClick={e => e.stopPropagation()} style={{ maxWidth: 450 }}>
             <div className='modal-header'>
               <h2>Assign Property to {selectedOwner.name}</h2>
               <button className='close-btn' onClick={() => setShowAssignPropertyModal(false)}>×</button>
             </div>
             <div className='modal-body'>
-              <div className='form-group'>
-                <label className='form-label'>Select Property</label>
-                <select
-                  className='form-select'
-                  value={assignPropertyId}
-                  onChange={(e) => setAssignPropertyId(e.target.value)}
-                  style={{ width: '100%', padding: '10px 12px', border: '1px solid #dadce0', borderRadius: 4, fontSize: 14 }}
-                >
-                  <option value=''>Choose a property...</option>
-                  {properties
-                    .filter(p => !getOwnerPropertiesById(selectedOwner.id).find(op => op.id === p.id))
-                    .map(p => (
-                      <option key={p.id} value={p.id}>{p.name || p.address}</option>
-                    ))
-                  }
-                </select>
-              </div>
-              
-              <div className='form-group' style={{ marginTop: 16 }}>
-                <label className='form-label'>Ownership Percentage</label>
-                <input
-                  type='number'
-                  className='form-input'
-                  placeholder='100'
-                  min='1'
-                  max='100'
-                  value={assignOwnershipPct}
-                  onChange={(e) => setAssignOwnershipPct(e.target.value)}
-                  style={{ width: '100%', padding: '10px 12px', border: '1px solid #dadce0', borderRadius: 4, fontSize: 14 }}
-                />
-                <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-                  Enter the percentage this owner owns (e.g., 50 for 50%)
-                </p>
-              </div>
+              <form id="assign-property-form">
+                <div className='form-group'>
+                  <label className='form-label'>Select Property</label>
+                  <select
+                    name="property_id"
+                    className='form-select'
+                    value={assignPropertyId}
+                    onChange={(e) => setAssignPropertyId(e.target.value)}
+                    style={{ width: '100%', padding: '10px 12px', border: '1px solid #dadce0', borderRadius: 4, fontSize: 14 }}
+                  >
+                    <option value=''>Choose a property...</option>
+                    {properties
+                      .filter(p => !getOwnerPropertiesById(selectedOwner.id).find(op => op.id === p.id))
+                      .map(p => (
+                        <option key={p.id} value={p.id}>{p.name || p.address}</option>
+                      ))
+                    }
+                  </select>
+                </div>
+                
+                <div className='form-group' style={{ marginTop: 16 }}>
+                  <label className='form-label'>Ownership Percentage</label>
+                  <input
+                    name="ownership_pct"
+                    type='number'
+                    className='form-input'
+                    placeholder='100'
+                    min='1'
+                    max='100'
+                    value={assignOwnershipPct}
+                    onChange={(e) => setAssignOwnershipPct(e.target.value)}
+                    style={{ width: '100%', padding: '10px 12px', border: '1px solid #dadce0', borderRadius: 4, fontSize: 14 }}
+                  />
+                  <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                    Enter the percentage this owner owns (e.g., 50 for 50%)
+                  </p>
+                </div>
+              </form>
             </div>
             <div className='modal-footer' style={{ padding: 16, borderTop: '1px solid #e5e7eb', display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
               <button className='btn-secondary' onClick={() => setShowAssignPropertyModal(false)}>Cancel</button>
@@ -17314,36 +18305,40 @@ function App() {
 
       {/* Owner Statement Modal */}
       {showOwnerStatementModal && selectedOwner && (
-        <div className='modal-overlay' onClick={() => setShowOwnerStatementModal(false)}>
+        <div className='modal-overlay' onClick={() => handleModalClose('owner-statement-form', () => setShowOwnerStatementModal(false))}>
           <div className='modal' onClick={e => e.stopPropagation()} style={{ maxWidth: 700 }}>
             <div className='modal-header'>
               <h2>Owner Statement</h2>
               <button className='close-btn' onClick={() => setShowOwnerStatementModal(false)}>×</button>
             </div>
             <div className='modal-body'>
-              {/* Period Selection */}
-              <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
-                <div className='form-group' style={{ flex: 1 }}>
-                  <label className='form-label'>Period Start</label>
-                  <input
-                    type='date'
-                    className='form-input'
-                    value={statementPeriod.start}
-                    onChange={(e) => setStatementPeriod({ ...statementPeriod, start: e.target.value })}
-                    style={{ width: '100%', padding: '10px 12px', border: '1px solid #dadce0', borderRadius: 4, fontSize: 14 }}
-                  />
+              <form id="owner-statement-form">
+                {/* Period Selection */}
+                <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+                  <div className='form-group' style={{ flex: 1 }}>
+                    <label className='form-label'>Period Start</label>
+                    <input
+                      name="period_start"
+                      type='date'
+                      className='form-input'
+                      value={statementPeriod.start}
+                      onChange={(e) => setStatementPeriod({ ...statementPeriod, start: e.target.value })}
+                      style={{ width: '100%', padding: '10px 12px', border: '1px solid #dadce0', borderRadius: 4, fontSize: 14 }}
+                    />
+                  </div>
+                  <div className='form-group' style={{ flex: 1 }}>
+                    <label className='form-label'>Period End</label>
+                    <input
+                      name="period_end"
+                      type='date'
+                      className='form-input'
+                      value={statementPeriod.end}
+                      onChange={(e) => setStatementPeriod({ ...statementPeriod, end: e.target.value })}
+                      style={{ width: '100%', padding: '10px 12px', border: '1px solid #dadce0', borderRadius: 4, fontSize: 14 }}
+                    />
+                  </div>
                 </div>
-                <div className='form-group' style={{ flex: 1 }}>
-                  <label className='form-label'>Period End</label>
-                  <input
-                    type='date'
-                    className='form-input'
-                    value={statementPeriod.end}
-                    onChange={(e) => setStatementPeriod({ ...statementPeriod, end: e.target.value })}
-                    style={{ width: '100%', padding: '10px 12px', border: '1px solid #dadce0', borderRadius: 4, fontSize: 14 }}
-                  />
-                </div>
-              </div>
+              </form>
               
               {/* Statement Preview */}
               <div style={{ background: '#f9fafb', padding: 24, borderRadius: 8 }}>
@@ -17443,10 +18438,10 @@ function App() {
 
       {/* Create Tag Modal */}
       {showCreateTagModal && (
-        <div className="modal-overlay" onClick={() => {
+        <div className="modal-overlay" onClick={() => handleModalClose('create-tag-form', () => {
           setShowCreateTagModal(false);
           setNewTag({ name: '', color: 'blue' });
-        }}>
+        })}>
           <div className="modal form-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Create Tag</h2>
@@ -17456,7 +18451,7 @@ function App() {
               }}>×</button>
             </div>
             <div className="modal-content">
-              <form onSubmit={async (e) => {
+              <form id="create-tag-form" onSubmit={async (e) => {
                 e.preventDefault();
                 const tagData = await createTag(newTag.name, newTag.color);
                 if (tagData) {
@@ -18825,6 +19820,1436 @@ function App() {
               >
                 {offboardingStep === 5 ? 'Complete Offboarding' : offboardingStep === 6 ? 'Done' : 'Continue'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Vendor Modal */}
+      {(showAddVendorModal || showEditVendorModal) && (
+        <div 
+          onClick={() => handleModalClose('vendor-form', () => {
+            setShowAddVendorModal(false);
+            setShowEditVendorModal(null);
+          })}
+          style={{ 
+            position: 'fixed', 
+            inset: 0, 
+            background: 'rgba(0,0,0,0.5)', 
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'white',
+              borderRadius: '16px',
+              width: '90%',
+              maxWidth: '560px',
+              maxHeight: '90vh',
+              overflow: 'auto'
+            }}
+          >
+            <div style={{ 
+              padding: '20px 24px', 
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: '#1e293b' }}>
+                {showEditVendorModal ? 'Edit Vendor' : 'Add New Vendor'}
+              </h2>
+              <button
+                onClick={() => {
+                  setShowAddVendorModal(false);
+                  setShowEditVendorModal(null);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '20px',
+                  cursor: 'pointer',
+                  color: '#64748b'
+                }}
+              >
+                ×
+              </button>
+            </div>
+            
+            <form
+              id="vendor-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.target);
+                const vendorData = {
+                  name: formData.get('name'),
+                  company: formData.get('company') || null,
+                  phone: formData.get('phone') || null,
+                  email: formData.get('email') || null,
+                  specialty: formData.get('specialty'),
+                  hourly_rate: formData.get('hourly_rate') ? Number(formData.get('hourly_rate')) : null,
+                  flat_rate: formData.get('flat_rate') ? Number(formData.get('flat_rate')) : null,
+                  notes: formData.get('notes') || null,
+                  rating: formData.get('rating') ? Number(formData.get('rating')) : null,
+                  insurance_expiry: formData.get('insurance_expiry') || null,
+                  license_number: formData.get('license_number') || null,
+                  is_preferred: formData.get('is_preferred') === 'on',
+                  status: formData.get('status') || 'active'
+                };
+                
+                if (showEditVendorModal) {
+                  await updateVendor(showEditVendorModal.id, vendorData);
+                } else {
+                  await addVendor(vendorData);
+                }
+                setShowAddVendorModal(false);
+                setShowEditVendorModal(null);
+              }}
+              style={{ padding: '24px' }}
+            >
+              <div style={{ display: 'grid', gap: '20px' }}>
+                {/* Name */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                    Contact Name *
+                  </label>
+                  <input
+                    name="name"
+                    required
+                    defaultValue={showEditVendorModal?.name || ''}
+                    placeholder="John Smith"
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+
+                {/* Company */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                    Company Name
+                  </label>
+                  <input
+                    name="company"
+                    defaultValue={showEditVendorModal?.company || ''}
+                    placeholder="ABC Plumbing LLC"
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+
+                {/* Phone & Email */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                      Phone
+                    </label>
+                    <input
+                      name="phone"
+                      type="tel"
+                      defaultValue={showEditVendorModal?.phone || ''}
+                      placeholder="(555) 123-4567"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                      Email
+                    </label>
+                    <input
+                      name="email"
+                      type="email"
+                      defaultValue={showEditVendorModal?.email || ''}
+                      placeholder="john@abcplumbing.com"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Specialty */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                    Specialty *
+                  </label>
+                  <select
+                    name="specialty"
+                    required
+                    defaultValue={showEditVendorModal?.specialty || ''}
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      background: 'white',
+                      boxSizing: 'border-box'
+                    }}
+                  >
+                    <option value="">Select specialty...</option>
+                    {vendorSpecialties.map(s => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Rates */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                      Hourly Rate
+                    </label>
+                    <input
+                      name="hourly_rate"
+                      type="number"
+                      step="0.01"
+                      defaultValue={showEditVendorModal?.hourly_rate || ''}
+                      placeholder="75.00"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                      Flat Rate
+                    </label>
+                    <input
+                      name="flat_rate"
+                      type="number"
+                      step="0.01"
+                      defaultValue={showEditVendorModal?.flat_rate || ''}
+                      placeholder="150.00"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* License & Insurance */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                      License Number
+                    </label>
+                    <input
+                      name="license_number"
+                      defaultValue={showEditVendorModal?.license_number || ''}
+                      placeholder="LIC-12345"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                      Insurance Expiry
+                    </label>
+                    <input
+                      name="insurance_expiry"
+                      type="date"
+                      defaultValue={showEditVendorModal?.insurance_expiry || ''}
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Rating */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                    Rating
+                  </label>
+                  <select
+                    name="rating"
+                    defaultValue={showEditVendorModal?.rating || ''}
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      background: 'white',
+                      boxSizing: 'border-box'
+                    }}
+                  >
+                    <option value="">No rating</option>
+                    <option value="5">★★★★★ Excellent</option>
+                    <option value="4">★★★★☆ Good</option>
+                    <option value="3">★★★☆☆ Average</option>
+                    <option value="2">★★☆☆☆ Below Average</option>
+                    <option value="1">★☆☆☆☆ Poor</option>
+                  </select>
+                </div>
+
+                {/* Status & Preferred */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                      Status
+                    </label>
+                    <select
+                      name="status"
+                      defaultValue={showEditVendorModal?.status || 'active'}
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        background: 'white',
+                        boxSizing: 'border-box'
+                      }}
+                    >
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', paddingTop: '28px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                      <input
+                        name="is_preferred"
+                        type="checkbox"
+                        defaultChecked={showEditVendorModal?.is_preferred || false}
+                        style={{ width: '18px', height: '18px' }}
+                      />
+                      <span style={{ fontSize: '14px', color: '#374151' }}>Mark as Preferred Vendor</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                    Notes
+                  </label>
+                  <textarea
+                    name="notes"
+                    defaultValue={showEditVendorModal?.notes || ''}
+                    placeholder="Additional notes about this vendor..."
+                    rows={3}
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      resize: 'vertical',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div style={{ 
+                display: 'flex', 
+                justifyContent: 'flex-end', 
+                gap: '12px', 
+                marginTop: '24px',
+                paddingTop: '20px',
+                borderTop: '1px solid #e2e8f0'
+              }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddVendorModal(false);
+                    setShowEditVendorModal(null);
+                  }}
+                  style={{
+                    padding: '10px 20px',
+                    background: 'white',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    color: '#64748b'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{
+                    padding: '10px 20px',
+                    background: '#1a73e8',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    color: 'white'
+                  }}
+                >
+                  {showEditVendorModal ? 'Save Changes' : 'Add Vendor'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Vendor Detail Panel */}
+      {showVendorDetail && (
+        <div 
+          onClick={() => setShowVendorDetail(null)}
+          style={{ 
+            position: 'fixed', 
+            inset: 0, 
+            background: 'rgba(0,0,0,0.5)', 
+            zIndex: 1000 
+          }}
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            style={{
+              position: 'fixed',
+              top: 0,
+              right: 0,
+              width: '600px',
+              maxWidth: '100%',
+              height: '100vh',
+              background: 'white',
+              boxShadow: '-4px 0 20px rgba(0,0,0,0.1)',
+              overflow: 'auto'
+            }}
+          >
+            {(() => {
+              const vendor = showVendorDetail;
+              const stats = getVendorStats(vendor.id);
+              const specialtyInfo = getSpecialtyInfo(vendor.specialty);
+              const vendorJobs = maintenanceRequests.filter(m => m.vendor_id === vendor.id);
+              
+              return (
+                <>
+                  {/* Header */}
+                  <div style={{ 
+                    padding: '24px', 
+                    borderBottom: '1px solid #e2e8f0',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start'
+                  }}>
+                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                      <div style={{
+                        width: '64px',
+                        height: '64px',
+                        borderRadius: '12px',
+                        background: '#f1f5f9',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#64748b'
+                      }}>
+                        <div style={{ transform: 'scale(1.5)' }}>{specialtyInfo.icon}</div>
+                      </div>
+                      <div>
+                        <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#1e293b' }}>
+                          {vendor.name}
+                        </h2>
+                        {vendor.company && (
+                          <p style={{ margin: '4px 0 0', color: '#64748b' }}>{vendor.company}</p>
+                        )}
+                        <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#1a73e8', fontWeight: '500' }}>
+                          {specialtyInfo.label}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowVendorDetail(null)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        fontSize: '24px',
+                        cursor: 'pointer',
+                        color: '#64748b'
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  {/* Content */}
+                  <div style={{ padding: '24px' }}>
+                    {/* Quick Actions */}
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
+                      <button
+                        onClick={() => {
+                          setShowEditVendorModal(vendor);
+                          setShowVendorDetail(null);
+                        }}
+                        style={{
+                          flex: 1,
+                          padding: '10px',
+                          background: 'white',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: '8px',
+                          fontSize: '13px',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                          color: '#374151'
+                        }}
+                      >
+                        Edit Vendor
+                      </button>
+                      <button
+                        onClick={() => setShowAddPaymentModal(vendor)}
+                        style={{
+                          flex: 1,
+                          padding: '10px',
+                          background: '#1a73e8',
+                          border: 'none',
+                          borderRadius: '8px',
+                          fontSize: '13px',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                          color: 'white'
+                        }}
+                      >
+                        Record Payment
+                      </button>
+                      {vendor.phone && (
+                        <a
+                          href={`tel:${vendor.phone}`}
+                          style={{
+                            padding: '10px 16px',
+                            background: '#f1f5f9',
+                            border: 'none',
+                            borderRadius: '8px',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            cursor: 'pointer',
+                            color: '#374151',
+                            textDecoration: 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                          Call
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Stats Cards */}
+                    <div style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(2, 1fr)', 
+                      gap: '12px',
+                      marginBottom: '24px'
+                    }}>
+                      <div style={{
+                        padding: '16px',
+                        background: '#f8fafc',
+                        borderRadius: '10px'
+                      }}>
+                        <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Total Jobs</p>
+                        <p style={{ margin: '4px 0 0', fontSize: '24px', fontWeight: '600', color: '#1e293b' }}>
+                          {stats.totalJobs}
+                        </p>
+                        <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b' }}>
+                          {stats.completedJobs} completed, {stats.openJobs} open
+                        </p>
+                      </div>
+                      <div style={{
+                        padding: '16px',
+                        background: '#f8fafc',
+                        borderRadius: '10px'
+                      }}>
+                        <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Total Paid</p>
+                        <p style={{ margin: '4px 0 0', fontSize: '24px', fontWeight: '600', color: '#1e293b' }}>
+                          ${stats.totalPaid.toLocaleString()}
+                        </p>
+                        {stats.pendingPayments > 0 && (
+                          <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#dc2626' }}>
+                            ${stats.pendingPayments.toLocaleString()} pending
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Contact Info */}
+                    <div style={{ 
+                      padding: '16px', 
+                      background: '#f8fafc', 
+                      borderRadius: '10px',
+                      marginBottom: '24px'
+                    }}>
+                      <h4 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '600', color: '#374151' }}>
+                        Contact Information
+                      </h4>
+                      <div style={{ display: 'grid', gap: '8px' }}>
+                        {vendor.phone && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#64748b', fontSize: '13px' }}>Phone</span>
+                            <span style={{ color: '#1e293b', fontSize: '13px' }}>{vendor.phone}</span>
+                          </div>
+                        )}
+                        {vendor.email && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#64748b', fontSize: '13px' }}>Email</span>
+                            <a href={`mailto:${vendor.email}`} style={{ color: '#1a73e8', fontSize: '13px' }}>
+                              {vendor.email}
+                            </a>
+                          </div>
+                        )}
+                        {vendor.license_number && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#64748b', fontSize: '13px' }}>License</span>
+                            <span style={{ color: '#1e293b', fontSize: '13px' }}>{vendor.license_number}</span>
+                          </div>
+                        )}
+                        {vendor.insurance_expiry && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#64748b', fontSize: '13px' }}>Insurance Expires</span>
+                            <span style={{ 
+                              color: new Date(vendor.insurance_expiry) < new Date() ? '#dc2626' : '#1e293b', 
+                              fontSize: '13px' 
+                            }}>
+                              {new Date(vendor.insurance_expiry).toLocaleDateString()}
+                            </span>
+                          </div>
+                        )}
+                        {(vendor.hourly_rate || vendor.flat_rate) && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#64748b', fontSize: '13px' }}>Rate</span>
+                            <span style={{ color: '#1e293b', fontSize: '13px' }}>
+                              {vendor.hourly_rate && `$${vendor.hourly_rate}/hr`}
+                              {vendor.hourly_rate && vendor.flat_rate && ' | '}
+                              {vendor.flat_rate && `$${vendor.flat_rate} flat`}
+                            </span>
+                          </div>
+                        )}
+                        {vendor.rating && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ color: '#64748b', fontSize: '13px' }}>Rating</span>
+                            {renderStars(vendor.rating)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Notes */}
+                    {vendor.notes && (
+                      <div style={{ marginBottom: '24px' }}>
+                        <h4 style={{ margin: '0 0 8px', fontSize: '14px', fontWeight: '600', color: '#374151' }}>
+                          Notes
+                        </h4>
+                        <p style={{ margin: 0, fontSize: '14px', color: '#64748b', lineHeight: '1.5' }}>
+                          {vendor.notes}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Assigned Jobs */}
+                    <div style={{ marginBottom: '24px' }}>
+                      <h4 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '600', color: '#374151' }}>
+                        Assigned Jobs ({vendorJobs.length})
+                      </h4>
+                      {vendorJobs.length === 0 ? (
+                        <p style={{ color: '#64748b', fontSize: '14px' }}>No jobs assigned yet</p>
+                      ) : (
+                        <div style={{ display: 'grid', gap: '8px' }}>
+                          {vendorJobs.slice(0, 5).map(job => (
+                            <div key={job.id} style={{
+                              padding: '12px',
+                              background: '#f8fafc',
+                              borderRadius: '8px',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center'
+                            }}>
+                              <div>
+                                <p style={{ margin: 0, fontSize: '14px', fontWeight: '500', color: '#1e293b' }}>
+                                  {job.title}
+                                </p>
+                                <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b' }}>
+                                  {properties.find(p => p.id === job.property_id)?.name || 'Unknown property'}
+                                </p>
+                              </div>
+                              <span style={{
+                                padding: '4px 8px',
+                                background: job.status === 'completed' ? '#dcfce7' : job.status === 'in_progress' ? '#dbeafe' : '#fef3c7',
+                                color: job.status === 'completed' ? '#166534' : job.status === 'in_progress' ? '#1e40af' : '#92400e',
+                                borderRadius: '6px',
+                                fontSize: '11px',
+                                fontWeight: '500'
+                              }}>
+                                {job.status}
+                              </span>
+                            </div>
+                          ))}
+                          {vendorJobs.length > 5 && (
+                            <p style={{ margin: '8px 0 0', fontSize: '13px', color: '#64748b', textAlign: 'center' }}>
+                              +{vendorJobs.length - 5} more jobs
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Payment History */}
+                    <div style={{ marginBottom: '24px' }}>
+                      <h4 style={{ margin: '0 0 12px', fontSize: '14px', fontWeight: '600', color: '#374151' }}>
+                        Payment History ({stats.payments.length})
+                      </h4>
+                      {stats.payments.length === 0 ? (
+                        <p style={{ color: '#64748b', fontSize: '14px' }}>No payments recorded</p>
+                      ) : (
+                        <div style={{ display: 'grid', gap: '8px' }}>
+                          {stats.payments.slice(0, 10).map(payment => (
+                            <div key={payment.id} style={{
+                              padding: '12px',
+                              background: '#f8fafc',
+                              borderRadius: '8px',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center'
+                            }}>
+                              <div>
+                                <p style={{ margin: 0, fontSize: '14px', fontWeight: '500', color: '#1e293b' }}>
+                                  ${Number(payment.amount).toLocaleString()}
+                                </p>
+                                <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b' }}>
+                                  {payment.description || 'No description'} | {new Date(payment.payment_date).toLocaleDateString()}
+                                </p>
+                              </div>
+                              <span style={{
+                                padding: '4px 8px',
+                                background: payment.status === 'paid' ? '#dcfce7' : payment.status === 'pending' ? '#fef3c7' : '#fee2e2',
+                                color: payment.status === 'paid' ? '#166534' : payment.status === 'pending' ? '#92400e' : '#dc2626',
+                                borderRadius: '6px',
+                                fontSize: '11px',
+                                fontWeight: '500'
+                              }}>
+                                {payment.status}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Delete Button */}
+                    <div style={{ marginTop: '32px', paddingTop: '20px', borderTop: '1px solid #e2e8f0' }}>
+                      <button
+                        onClick={async () => {
+                          if (confirm(`Delete ${vendor.name}? This cannot be undone.`)) {
+                            await deleteVendor(vendor.id);
+                            setShowVendorDetail(null);
+                          }
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '10px',
+                          background: 'white',
+                          border: '1px solid #fecaca',
+                          borderRadius: '8px',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                          color: '#dc2626'
+                        }}
+                      >
+                        Delete Vendor
+                      </button>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* Add Vendor Payment Modal */}
+      {showAddPaymentModal && (
+        <div 
+          onClick={() => handleModalClose('payment-form', () => setShowAddPaymentModal(null))}
+          style={{ 
+            position: 'fixed', 
+            inset: 0, 
+            background: 'rgba(0,0,0,0.5)', 
+            zIndex: 1001,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'white',
+              borderRadius: '16px',
+              width: '90%',
+              maxWidth: '480px',
+              maxHeight: '90vh',
+              overflow: 'auto'
+            }}
+          >
+            <div style={{ 
+              padding: '20px 24px', 
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '600', color: '#1e293b' }}>
+                Record Payment
+              </h2>
+              <button
+                onClick={() => setShowAddPaymentModal(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '20px',
+                  cursor: 'pointer',
+                  color: '#64748b'
+                }}
+              >
+                ×
+              </button>
+            </div>
+            
+            <form
+              id="payment-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.target);
+                const paymentData = {
+                  vendor_id: showAddPaymentModal.id,
+                  amount: Number(formData.get('amount')),
+                  description: formData.get('description') || null,
+                  payment_date: formData.get('payment_date'),
+                  payment_method: formData.get('payment_method'),
+                  check_number: formData.get('check_number') || null,
+                  invoice_number: formData.get('invoice_number') || null,
+                  property_id: formData.get('property_id') ? Number(formData.get('property_id')) : null,
+                  maintenance_request_id: formData.get('maintenance_request_id') ? Number(formData.get('maintenance_request_id')) : null,
+                  status: formData.get('status')
+                };
+                
+                await addVendorPayment(paymentData);
+                setShowAddPaymentModal(null);
+              }}
+              style={{ padding: '24px' }}
+            >
+              <div style={{ display: 'grid', gap: '20px' }}>
+                {/* Vendor (read-only) */}
+                <div style={{
+                  padding: '12px',
+                  background: '#f8fafc',
+                  borderRadius: '8px'
+                }}>
+                  <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Vendor</p>
+                  <p style={{ margin: '4px 0 0', fontSize: '14px', fontWeight: '500', color: '#1e293b' }}>
+                    {showAddPaymentModal.name} {showAddPaymentModal.company && `(${showAddPaymentModal.company})`}
+                  </p>
+                </div>
+
+                {/* Amount */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                    Amount *
+                  </label>
+                  <input
+                    name="amount"
+                    type="number"
+                    step="0.01"
+                    required
+                    placeholder="0.00"
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+
+                {/* Description */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                    Description
+                  </label>
+                  <input
+                    name="description"
+                    placeholder="Service call, repairs, etc."
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+
+                {/* Date & Method */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                      Payment Date *
+                    </label>
+                    <input
+                      name="payment_date"
+                      type="date"
+                      required
+                      defaultValue={new Date().toISOString().split('T')[0]}
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                      Payment Method
+                    </label>
+                    <select
+                      name="payment_method"
+                      defaultValue="check"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        background: 'white',
+                        boxSizing: 'border-box'
+                      }}
+                    >
+                      {paymentMethods.map(m => (
+                        <option key={m.value} value={m.value}>{m.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Check & Invoice Numbers */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                      Check Number
+                    </label>
+                    <input
+                      name="check_number"
+                      placeholder="1234"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                      Invoice Number
+                    </label>
+                    <input
+                      name="invoice_number"
+                      placeholder="INV-001"
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Property */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                    Property (optional)
+                  </label>
+                  <select
+                    name="property_id"
+                    defaultValue=""
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      background: 'white',
+                      boxSizing: 'border-box'
+                    }}
+                  >
+                    <option value="">Select property...</option>
+                    {properties.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Maintenance Request */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                    Related Maintenance Request (optional)
+                  </label>
+                  <select
+                    name="maintenance_request_id"
+                    defaultValue=""
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      background: 'white',
+                      boxSizing: 'border-box'
+                    }}
+                  >
+                    <option value="">Select maintenance request...</option>
+                    {maintenanceRequests
+                      .filter(m => m.vendor_id === showAddPaymentModal.id)
+                      .map(m => (
+                        <option key={m.id} value={m.id}>{m.issue || m.title}</option>
+                      ))}
+                  </select>
+                </div>
+
+                {/* Status */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: '500', color: '#374151' }}>
+                    Status
+                  </label>
+                  <select
+                    name="status"
+                    defaultValue="paid"
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      background: 'white',
+                      boxSizing: 'border-box'
+                    }}
+                  >
+                    <option value="paid">Paid</option>
+                    <option value="pending">Pending</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div style={{ 
+                display: 'flex', 
+                justifyContent: 'flex-end', 
+                gap: '12px', 
+                marginTop: '24px',
+                paddingTop: '20px',
+                borderTop: '1px solid #e2e8f0'
+              }}>
+                <button
+                  type="button"
+                  onClick={() => setShowAddPaymentModal(null)}
+                  style={{
+                    padding: '10px 20px',
+                    background: 'white',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    color: '#64748b'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{
+                    padding: '10px 20px',
+                    background: '#1a73e8',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    color: 'white'
+                  }}
+                >
+                  Record Payment
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Help & Support Modal */}
+      {showHelpSupport && (
+        <div 
+          onClick={() => setShowHelpSupport(false)}
+          style={{ 
+            position: 'fixed', 
+            inset: 0, 
+            background: 'rgba(0,0,0,0.5)', 
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+        >
+          <div 
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'white',
+              borderRadius: '16px',
+              width: '90%',
+              maxWidth: '900px',
+              maxHeight: '90vh',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column'
+            }}
+          >
+            {/* Header */}
+            <div style={{ 
+              padding: '24px', 
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#1e293b' }}>
+                  Help & Support
+                </h2>
+                <p style={{ margin: '4px 0 0', fontSize: '14px', color: '#64748b' }}>
+                  Find answers or get in touch with our team
+                </p>
+              </div>
+              <button
+                onClick={() => setShowHelpSupport(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '24px',
+                  cursor: 'pointer',
+                  color: '#64748b'
+                }}
+              >
+                ×
+              </button>
+            </div>
+            
+            {/* Content */}
+            <div style={{ flex: 1, overflow: 'auto', padding: '24px' }}>
+              {/* Search */}
+              <div style={{ marginBottom: '24px' }}>
+                <input
+                  type="text"
+                  placeholder="Search for help..."
+                  value={helpSearchQuery}
+                  onChange={(e) => setHelpSearchQuery(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '14px 16px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '10px',
+                    fontSize: '15px',
+                    boxSizing: 'border-box'
+                  }}
+                />
+              </div>
+              
+              {/* Quick Actions */}
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(3, 1fr)', 
+                gap: '16px',
+                marginBottom: '32px'
+              }}>
+                <a
+                  href="mailto:support@propli.app?subject=Support Request"
+                  style={{
+                    padding: '20px',
+                    background: '#f8fafc',
+                    borderRadius: '12px',
+                    textDecoration: 'none',
+                    textAlign: 'center',
+                    border: '1px solid #e2e8f0',
+                    transition: 'border-color 0.15s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.borderColor = '#1a73e8'}
+                  onMouseLeave={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
+                >
+                  <div style={{
+                    width: '48px',
+                    height: '48px',
+                    margin: '0 auto 12px',
+                    background: '#dbeafe',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#1a73e8'
+                  }}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#1e293b' }}>Email Support</p>
+                  <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b' }}>Get help within 24 hours</p>
+                </a>
+                
+                <a
+                  href="tel:+12065551234"
+                  style={{
+                    padding: '20px',
+                    background: '#f8fafc',
+                    borderRadius: '12px',
+                    textDecoration: 'none',
+                    textAlign: 'center',
+                    border: '1px solid #e2e8f0',
+                    transition: 'border-color 0.15s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.borderColor = '#1a73e8'}
+                  onMouseLeave={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
+                >
+                  <div style={{
+                    width: '48px',
+                    height: '48px',
+                    margin: '0 auto 12px',
+                    background: '#dcfce7',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#16a34a'
+                  }}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#1e293b' }}>Call Us</p>
+                  <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b' }}>Mon-Fri, 9am-5pm PST</p>
+                </a>
+                
+                <button
+                  onClick={() => {
+                    // Open live chat or chatbot
+                    alert('Live chat coming soon! For now, please email support@propli.app');
+                  }}
+                  style={{
+                    padding: '20px',
+                    background: '#f8fafc',
+                    borderRadius: '12px',
+                    textAlign: 'center',
+                    border: '1px solid #e2e8f0',
+                    cursor: 'pointer',
+                    transition: 'border-color 0.15s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.borderColor = '#1a73e8'}
+                  onMouseLeave={(e) => e.currentTarget.style.borderColor = '#e2e8f0'}
+                >
+                  <div style={{
+                    width: '48px',
+                    height: '48px',
+                    margin: '0 auto 12px',
+                    background: '#fef3c7',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#d97706'
+                  }}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#1e293b' }}>Live Chat</p>
+                  <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#64748b' }}>Coming soon</p>
+                </button>
+              </div>
+              
+              {/* Category Filters */}
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+                {[
+                  { id: 'all', label: 'All Topics' },
+                  { id: 'getting-started', label: 'Getting Started' },
+                  { id: 'tenants', label: 'Tenants' },
+                  { id: 'properties', label: 'Properties' },
+                  { id: 'maintenance', label: 'Maintenance' },
+                  { id: 'payments', label: 'Payments & Fees' },
+                  { id: 'vendors', label: 'Vendors' },
+                  { id: 'account', label: 'Account' }
+                ].map(cat => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setHelpCategory(cat.id)}
+                    style={{
+                      padding: '8px 16px',
+                      background: helpCategory === cat.id ? '#1a73e8' : 'white',
+                      color: helpCategory === cat.id ? 'white' : '#64748b',
+                      border: '1px solid',
+                      borderColor: helpCategory === cat.id ? '#1a73e8' : '#e2e8f0',
+                      borderRadius: '20px',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+              
+              {/* FAQ Items */}
+              <div style={{ display: 'grid', gap: '12px' }}>
+                {[
+                  { category: 'getting-started', q: 'How do I add my first property?', a: 'Go to the Properties tab and click "Add Property". Fill in the property details including name, address, and unit information. You can add photos and set up units after the property is created.' },
+                  { category: 'getting-started', q: 'How do I import existing tenant data?', a: 'Currently, tenants need to be added manually through the Tenants tab. Bulk import via CSV is coming soon. Contact support if you have a large dataset to migrate.' },
+                  { category: 'tenants', q: 'How do I send a rent reminder to a tenant?', a: 'Open the tenant\'s profile and click "Send Reminder" or go to the Messages tab to send a custom SMS. You can also enable automatic reminders in Settings.' },
+                  { category: 'tenants', q: 'How do I handle a tenant move-out?', a: 'Update the tenant\'s status to "Past" and set their lease end date. This will update occupancy numbers and move them to the Past Tenants view.' },
+                  { category: 'properties', q: 'Can I manage multiple properties?', a: 'Yes! Propli supports unlimited properties. Each property can have multiple units, and you can view portfolio-wide analytics on the Dashboard.' },
+                  { category: 'maintenance', q: 'How do I assign a vendor to a maintenance request?', a: 'Open the maintenance request and use the "Assigned Vendor" dropdown to select a vendor. You can then email the work order directly to the vendor.' },
+                  { category: 'maintenance', q: 'Can tenants submit maintenance requests?', a: 'Yes, tenants can text maintenance requests to your Propli number. The system automatically creates a ticket when keywords like "broken", "leak", or "repair" are detected.' },
+                  { category: 'payments', q: 'How do late fees work?', a: 'Configure late fees per property in the Late Fees tab. Set the fee amount (flat or percentage), grace period, and the system will automatically apply fees when rent is overdue.' },
+                  { category: 'payments', q: 'Can I waive a late fee?', a: 'Yes, open the Late Fees tab, find the fee, and click "Waive". You\'ll be asked to provide a reason which is recorded for your records.' },
+                  { category: 'vendors', q: 'How do I track vendor payments?', a: 'Go to the Vendors tab, select a vendor, and click "Record Payment". You can link payments to specific properties and maintenance requests.' },
+                  { category: 'vendors', q: 'Can I mark a vendor as preferred?', a: 'Yes, when adding or editing a vendor, check the "Mark as Preferred Vendor" option. Preferred vendors are highlighted in the directory.' },
+                  { category: 'account', q: 'How do I change my password?', a: 'Go to Settings > Account and click "Change Password". You\'ll receive an email with a password reset link.' },
+                  { category: 'account', q: 'Can I add other users to my account?', a: 'Team member functionality is coming soon. Currently, Propli supports single-user accounts. Contact support for multi-user needs.' }
+                ]
+                  .filter(faq => {
+                    if (helpCategory !== 'all' && faq.category !== helpCategory) return false;
+                    if (helpSearchQuery) {
+                      const query = helpSearchQuery.toLowerCase();
+                      return faq.q.toLowerCase().includes(query) || faq.a.toLowerCase().includes(query);
+                    }
+                    return true;
+                  })
+                  .map((faq, i) => (
+                    <details
+                      key={i}
+                      style={{
+                        background: '#f8fafc',
+                        borderRadius: '10px',
+                        border: '1px solid #e2e8f0'
+                      }}
+                    >
+                      <summary style={{
+                        padding: '16px 20px',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        color: '#1e293b',
+                        listStyle: 'none',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}>
+                        {faq.q}
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                      </summary>
+                      <div style={{
+                        padding: '0 20px 16px',
+                        fontSize: '14px',
+                        color: '#64748b',
+                        lineHeight: '1.6'
+                      }}>
+                        {faq.a}
+                      </div>
+                    </details>
+                  ))}
+              </div>
+              
+              {/* Still Need Help */}
+              <div style={{
+                marginTop: '32px',
+                padding: '24px',
+                background: 'linear-gradient(135deg, #1a73e8 0%, #1e40af 100%)',
+                borderRadius: '12px',
+                textAlign: 'center',
+                color: 'white'
+              }}>
+                <h3 style={{ margin: '0 0 8px', fontSize: '18px', fontWeight: '600' }}>
+                  Still need help?
+                </h3>
+                <p style={{ margin: '0 0 16px', fontSize: '14px', opacity: 0.9 }}>
+                  Our support team is here to help you succeed with Propli.
+                </p>
+                <a
+                  href="mailto:support@propli.app?subject=Support Request"
+                  style={{
+                    display: 'inline-block',
+                    padding: '12px 24px',
+                    background: 'white',
+                    color: '#1a73e8',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    textDecoration: 'none'
+                  }}
+                >
+                  Contact Support
+                </a>
+              </div>
             </div>
           </div>
         </div>
