@@ -4,6 +4,8 @@ import { supabase } from './supabase';
 import Auth from './Auth';
 import TenantPortal from './TenantPortal';
 import PaymentPage from './PaymentPage';
+import Checklists from './pages/Checklists';
+import Applications from './pages/Applications';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import Papa from 'papaparse';
@@ -217,7 +219,9 @@ function App() {
   const [user, setUser] = useState(null);
   const [session, setSession] = useState(null);
   const [activeTab, setActiveTab] = useState(() => {
-    // Restore active tab from localStorage on mount
+    const path = window.location.pathname;
+    if (path.startsWith('/checklists')) return 'checklists';
+    if (path.startsWith('/applications')) return 'applications';
     const savedTab = localStorage.getItem('propli_activeTab');
     return savedTab || 'dashboard';
   });
@@ -2449,6 +2453,7 @@ function App() {
     // const name = localPart.charAt(0).toUpperCase() + localPart.slice(1, 5);
     // return name;
   };
+
 
   // Handle modal close with unsaved changes check
   const handleModalClose = (formId, closeFunction) => {
@@ -7018,6 +7023,20 @@ function App() {
     return <PaymentPage />;
   }
 
+  // Handle /checklists route
+  useEffect(() => {
+    if (window.location.pathname.startsWith('/checklists')) {
+      setActiveTab('checklists');
+      // Update URL without reload
+      window.history.replaceState({}, '', '/checklists');
+    }
+    if (window.location.pathname.startsWith('/applications')) {
+      setActiveTab('applications');
+      // Update URL without reload
+      window.history.replaceState({}, '', '/applications');
+    }
+  }, []);
+
   // Show auth screen if not authenticated
   if (!user) {
     return <Auth onAuthSuccess={handleAuthSuccess} />;
@@ -7373,6 +7392,8 @@ function App() {
                 { id: 'properties', icon: '🏠', label: 'Properties' },
                 { id: 'owners', icon: '👤', label: 'Owners' },
                 { id: 'maintenance', icon: '🔧', label: 'Maintenance' },
+                { id: 'checklists', icon: '📋', label: 'Checklists' },
+                { id: 'applications', icon: '📝', label: 'Applications' },
                 { id: 'vendors', icon: '👷', label: 'Vendors' },
                 { id: 'late-fees', icon: '💰', label: 'Late Fees' },
                 { id: 'schedule', icon: '📅', label: 'Schedule' },
@@ -7514,6 +7535,46 @@ function App() {
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
               {!sidebarCollapsed && <span>Maintenance</span>}
+            </div>
+            
+            <div
+              onClick={() => setActiveTab('checklists')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 16px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                background: activeTab === 'checklists' ? '#e8f0fe' : 'transparent',
+                color: activeTab === 'checklists' ? '#1a73e8' : '#4b5563',
+                fontWeight: activeTab === 'checklists' ? 600 : 400,
+                marginBottom: 4,
+                transition: 'background 0.2s'
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+              {!sidebarCollapsed && <span>Checklists</span>}
+            </div>
+            
+            <div
+              onClick={() => setActiveTab('applications')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 16px',
+                borderRadius: 8,
+                cursor: 'pointer',
+                background: activeTab === 'applications' ? '#e8f0fe' : 'transparent',
+                color: activeTab === 'applications' ? '#1a73e8' : '#4b5563',
+                fontWeight: activeTab === 'applications' ? 600 : 400,
+                marginBottom: 4,
+                transition: 'background 0.2s'
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2z"></path></svg>
+              {!sidebarCollapsed && <span>Applications</span>}
             </div>
             
             <div
@@ -10191,6 +10252,14 @@ function App() {
                     )}
                   </div>
                 </div>
+              )}
+
+              {activeTab === 'checklists' && (
+                <Checklists />
+              )}
+
+              {activeTab === 'applications' && (
+                <Applications />
               )}
 
               {activeTab === 'maintenance' && (
@@ -21254,6 +21323,7 @@ Thank you.`
           </div>
         </div>
       )}
+
       </main>
       </div>
     </div>
