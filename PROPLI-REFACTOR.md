@@ -318,6 +318,19 @@ Test: log in as an owner, verify all four portal tabs (overview, properties, ten
 
 Commit: `refactor: extract owner portal`
 
+### Phase 10.5: Additions discovered during refactor
+
+Four feature folders not in the original target structure were identified during Phase 1 recon. They correspond to existing code at the src root or in legacy subfolders. Extract each with the same pattern as prior feature phases (hook → sub-components → page). Scope is relocate-and-rewire, not redesign.
+
+- `src/features/checklists/` — migrate from `src/pages/Checklists.jsx`, `src/components/checklists/`, and `src/hooks/useChecklists.js`. This feature is in-progress per CLAUDE.md; do not finish missing components here.
+- `src/features/auth/` — migrate from `src/Auth.jsx` and `src/Auth.css`. Auth behavior stays identical.
+- `src/features/tenant-portal/` — migrate from `src/TenantPortal.jsx` and `src/TenantPortal.css`. Tenant-facing portal; distinct from the owner portal extracted in Phase 10.
+- `src/features/payments/` — migrate from `src/PaymentPage.jsx` and `src/PaymentPage.css`.
+
+Test each sub-migration: the affected route still loads, no console errors, feature still functions end to end.
+
+Commits: one per sub-feature, in the form `refactor: extract <feature-name> feature`.
+
 ### Phase 11: Slim Down App.jsx
 
 At this point App.jsx should be mostly an empty shell. Reduce it to a router that imports each feature page. Target: under 100 lines.
