@@ -2,6 +2,21 @@
 
 Execute this plan phase by phase. Do not skip phases. After each phase, run the dev server, click through the affected feature, and commit before moving on. If anything breaks, revert the commit and flag it before continuing.
 
+## Baseline Metrics
+
+Captured at start of `refactor/structural-split` branch, 2026-04-19.
+
+- `src/App.jsx`: 21,333 lines
+- Production build: succeeds on Vite 5.4.21
+  - `dist/assets/index-BRrd8Ykx.js`: 1,688.52 kB (gzip: 455.10 kB)
+  - `dist/assets/html2canvas.esm-CBrSDip1.js`: 201.42 kB (gzip: 48.03 kB)
+  - `dist/assets/index.es-BmEwwyA5.js`: 150.44 kB (gzip: 51.42 kB)
+  - `dist/assets/purify.es-C_uT9hQ1.js`: 21.98 kB (gzip: 8.74 kB)
+  - `dist/assets/index-CwSzFtvW.css`: 42.56 kB (gzip: 8.00 kB)
+  - `dist/index.html`: 0.43 kB (gzip: 0.29 kB)
+  - Build time: 2.52s
+- Dev server: starts cleanly on http://localhost:5173 in 174 ms, no errors
+
 ## Project Context
 
 - Stack: React 18, Vite, Supabase (Postgres, Auth, Storage, Edge Functions), Vercel, Twilio
