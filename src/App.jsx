@@ -6,6 +6,7 @@ import TenantPortal from './TenantPortal';
 import PaymentPage from './PaymentPage';
 import Checklists from './pages/Checklists';
 import Applications from './pages/Applications';
+import { useToast } from './shared/hooks/useToast';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import Papa from 'papaparse';
@@ -303,8 +304,7 @@ function App() {
   const [tenantFiles, setTenantFiles] = useState([]);
   const [propertyFiles, setPropertyFiles] = useState([]);
   
-  // Toast notifications
-  const [toasts, setToasts] = useState([]);
+  const { toasts, showToast, dismissToast } = useToast();
   
   // Schedule state
   const [scheduleEvents, setScheduleEvents] = useState([]);
@@ -5758,15 +5758,6 @@ function App() {
     setShowAddModal(false);
   };
 
-  // Toast helper function
-  const showToast = (message, type = 'error') => {
-    const toast = { message, type, id: Date.now() };
-    setToasts(prev => [...prev, toast]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== toast.id));
-    }, 4000);
-  };
-
   // RequiredLabel component
   const RequiredLabel = ({ children, required = true }) => (
     <label className='form-label'>
@@ -7089,7 +7080,7 @@ function App() {
             <span style={{ fontSize: 18 }}>{toast.type === 'error' ? '⚠️' : toast.type === 'success' ? '✓' : 'ℹ️'}</span>
             <span style={{ flex: 1 }}>{toast.message}</span>
             <button 
-              onClick={() => setToasts(toasts.filter(t => t.id !== toast.id))} 
+              onClick={() => dismissToast(toast.id)}
               style={{ 
                 background: 'none', 
                 border: 'none', 
