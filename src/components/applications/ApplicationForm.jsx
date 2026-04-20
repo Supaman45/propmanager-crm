@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApplications } from '../../hooks/useApplications';
-import { supabase } from '../../supabase';
+import { supabase } from '../../lib/supabase';
 
 const ApplicationForm = ({ applicationId, onSave, onCancel, properties = [], tenants = [] }) => {
   const { getApplication } = useApplications();

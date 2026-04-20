@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import './App.css';
-import { supabase } from './supabase';
+import { supabase } from './lib/supabase';
 import Auth from './Auth';
 import TenantPortal from './TenantPortal';
 import PaymentPage from './PaymentPage';
 import Checklists from './pages/Checklists';
 import Applications from './pages/Applications';
 import { useToast } from './shared/hooks/useToast';
+import { formatCurrency } from './shared/utils/formatCurrency';
+import { formatLeaseEndDate } from './shared/utils/formatLeaseEndDate';
+import { formatTimeAgo } from './shared/utils/formatTimeAgo';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import Papa from 'papaparse';
@@ -2952,11 +2955,6 @@ function App() {
   };
 
   // Currency formatter function
-  const formatCurrency = (value) => {
-    if (value === null || value === undefined || isNaN(value)) return '$0';
-    return '$' + Number(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  };
-
   // TagPicker Component (inline function component)
   const TagPicker = ({ recordType, recordId, existingTags = [], onTagsChange }) => {
     const recordTags = getTagsForRecord(recordType, recordId);
@@ -3225,34 +3223,6 @@ function App() {
     return avatarColors[hash % avatarColors.length];
   };
   
-  // Format lease end date
-  const formatLeaseEndDate = (leaseEnd, status) => {
-    if (!leaseEnd || status === 'prospect') return 'Pending';
-    const date = new Date(leaseEnd);
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
-  };
-
-  // Format time ago
-  const formatTimeAgo = (dateString) => {
-    if (!dateString) return 'Unknown';
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
-    
-    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? 's' : ''} ago`;
-    if (diffDays < 365) return `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? 's' : ''} ago`;
-    return `${Math.floor(diffDays / 365)} year${Math.floor(diffDays / 365) > 1 ? 's' : ''} ago`;
-  };
-
   // EventCard component
   const EventCard = ({ event, type, compact }) => {
     const typeColors = {
