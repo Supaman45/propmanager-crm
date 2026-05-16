@@ -43,3 +43,18 @@ Statuses: `OPEN`, `RESOLVED`, `WONTFIX`, `NOTED`.
 - Phase: Phase 0 recon
 - Details: `.env` had the same `VITE_ANTHROPIC_API_KEY=...` value on lines 1 and 2. Almost certainly a copy-paste slip rather than intentional. Resolved as part of the orphan cleanup above.
 - Proposed fix: None. Informational only.
+
+## [OPEN] owner_statements.property_id type mismatch with properties.id
+
+- Date: 2026-05-16
+- Phase: Demo data 500 scale-up
+- Details: `add-owner-portal-migration.sql:23` declares `owner_statements.property_id UUID REFERENCES properties(id)`, but `properties.id` is `BIGINT` (`database-schema.sql:37`). The foreign key cannot resolve, so any insert into `owner_statements` with a real `property_id` will fail. The table is effectively unwritable until the column type is fixed. Discovered while building the 500-door demo generator — `owner_statements` was skipped entirely as a result.
+- Proposed fix: Migration to change `owner_statements.property_id` from `UUID` to `BIGINT` and re-add the foreign key. Coordinate with whatever UI is supposed to write to this table (owner statement generation flow) before deploying.
+
+## [OPEN] properties.owner_id type mismatch with owners.id
+
+- Date: 2026-05-16
+- Phase: Demo data 500 scale-up
+- Details: `add-owner-portal-migration.sql:17` declares `ALTER TABLE properties ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES owners(id);`, but in production `properties.owner_id` is `BIGINT`. Inserting any UUID into the column fails with `invalid input syntax for type bigint`. Since `owners.id` is `UUID`, no valid value can be written — the column is effectively unusable for its declared purpose. The existing 35-tenant loader masks this by leaving `owner_id` null and relying on the `owner_name`/`owner_email` text columns to surface the owner in the UI. Discovered when the 500-door generator tried to populate `owner_id`.
+- Workaround in 500-door loader: skip `owner_id` on properties insert, populate `owner_name`/`owner_email` instead, and create rows in the `owner_properties` junction table (whose `property_id BIGINT` / `owner_id UUID` types are consistent) so owner → property lookups still work in the Owners tab.
+- Proposed fix: Migration to change `properties.owner_id` from `BIGINT` to `UUID` to match the original migration's intent, or drop the column entirely if the junction table is the canonical link. Audit any code that reads `properties.owner_id` before deciding which direction to take.
