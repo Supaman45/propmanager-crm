@@ -11,6 +11,8 @@ import { formatCurrency } from './shared/utils/formatCurrency';
 import { formatLeaseEndDate } from './shared/utils/formatLeaseEndDate';
 import { formatTimeAgo } from './shared/utils/formatTimeAgo';
 import { generateDemo500Portfolio } from './features/dev-tools/demoData500';
+import { clearAllUserData } from './features/dev-tools/clearAllUserData';
+import HealthDashboard from './features/reports/HealthDashboard';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import Papa from 'papaparse';
@@ -262,6 +264,7 @@ function App() {
   const [propertySearchQuery, setPropertySearchQuery] = useState('');
   const [maintenanceSearchQuery, setMaintenanceSearchQuery] = useState('');
   const [maintenanceFilterTab, setMaintenanceFilterTab] = useState('all');
+  const [reportsSubtab, setReportsSubtab] = useState('health');
   const [showCompleted, setShowCompleted] = useState(false);
   const [smsMessages, setSmsMessages] = useState([]);
   const [selectedConversation, setSelectedConversation] = useState(null);
@@ -5594,24 +5597,7 @@ function App() {
 
     setLoading(true);
     try {
-      // Delete in order to respect foreign key constraints. Applications
-      // and their children come first so screening_results doesn't dangle.
-      const { data: appsForUser } = await supabase
-        .from('tenant_applications')
-        .select('id')
-        .eq('user_id', user.id);
-      const appIds = (appsForUser || []).map(a => a.id);
-      if (appIds.length > 0) {
-        await supabase.from('screening_results').delete().in('application_id', appIds);
-        await supabase.from('application_documents').delete().in('application_id', appIds);
-        await supabase.from('rental_references').delete().in('application_id', appIds);
-      }
-      await supabase.from('tenant_applications').delete().eq('user_id', user.id);
-      await supabase.from('sms_messages').delete().eq('user_id', user.id);
-      await supabase.from('maintenance_requests').delete().eq('user_id', user.id);
-      await supabase.from('tenants').delete().eq('user_id', user.id);
-      await supabase.from('properties').delete().eq('user_id', user.id);
-      await supabase.from('owners').delete().eq('user_id', user.id);
+      await clearAllUserData(supabase, user.id);
 
       // Reset local state
       setTenants([]);
@@ -5622,7 +5608,7 @@ function App() {
       alert('All data has been cleared. Fresh start!');
     } catch (error) {
       console.error('Error clearing data:', error);
-      alert('Error clearing data: ' + error.message);
+      alert('Error clearing data: ' + error.message + '\n\nCheck the browser console for the full error and the table name that failed.');
     } finally {
       setLoading(false);
     }
@@ -11838,7 +11824,48 @@ function App() {
                         Export Reports
                       </button>
                     </div>
-                    
+
+                    {/* Sub-tab nav */}
+                    <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid #e5e7eb' }}>
+                      {[{ id: 'health', label: 'Health Dashboard' }, { id: 'detailed', label: 'Detailed Reports' }].map(tab => (
+                        <button
+                          key={tab.id}
+                          onClick={() => setReportsSubtab(tab.id)}
+                          style={{
+                            padding: '12px 20px',
+                            background: 'transparent',
+                            border: 'none',
+                            borderBottom: reportsSubtab === tab.id ? '2px solid #1a73e8' : '2px solid transparent',
+                            cursor: 'pointer',
+                            color: reportsSubtab === tab.id ? '#1a73e8' : '#5f6368',
+                            fontWeight: reportsSubtab === tab.id ? 600 : 500,
+                            fontSize: 14,
+                            marginBottom: -1
+                          }}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {reportsSubtab === 'health' ? (
+                      <HealthDashboard
+                        onNavigate={(target, payload) => {
+                          if (target === 'tenants') {
+                            if (payload?.filter === 'late') setFilterStatus('late');
+                            else if (payload?.filter === 'prospect') setFilterStatus('prospect');
+                            else setFilterStatus('all');
+                            setActiveTab('tenants');
+                          } else if (target === 'maintenance') {
+                            if (payload?.filter === 'open') setMaintenanceFilterTab('open');
+                            setActiveTab('maintenance');
+                          } else if (target === 'properties') {
+                            setActiveTab('properties');
+                          }
+                        }}
+                      />
+                    ) : (
+                    <>
                     {/* Stats Cards */}
                     <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px'}}>
                       {/* Total Revenue */}
@@ -12363,6 +12390,8 @@ function App() {
                         )}
                       </div>
                     </div>
+                    </>
+                    )}
                   </div>
                 );
               })()}

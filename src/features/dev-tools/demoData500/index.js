@@ -9,6 +9,7 @@ import { buildPropertyRows, stripInternal as stripPropertyInternals } from './pr
 import { buildTenantRows } from './tenants.js';
 import { buildMaintenanceRows } from './maintenance.js';
 import { buildApplicationRows, buildScreeningResults } from './applications.js';
+import { clearAllUserData, assertEmpty } from '../clearAllUserData.js';
 
 const CHUNK = 100;
 
@@ -33,37 +34,6 @@ async function insertInChunks(supabase, table, rows, { returning = true } = {}) 
   return inserted;
 }
 
-async function clearExistingData(supabase, userId) {
-  console.log('[demo500] Clearing existing data for user');
-  // Delete screening_results, rental_references, application_documents first
-  // since they reference tenant_applications by application_id.
-  const { data: appsForUser } = await supabase
-    .from('tenant_applications')
-    .select('id')
-    .eq('user_id', userId);
-  const appIds = (appsForUser || []).map(a => a.id);
-  if (appIds.length > 0) {
-    await supabase.from('screening_results').delete().in('application_id', appIds);
-    await supabase.from('application_documents').delete().in('application_id', appIds);
-    await supabase.from('rental_references').delete().in('application_id', appIds);
-  }
-  await supabase.from('tenant_applications').delete().eq('user_id', userId);
-  await supabase.from('sms_messages').delete().eq('user_id', userId);
-  await supabase.from('maintenance_requests').delete().eq('user_id', userId);
-  // owner_properties cascades from owners or properties deletion, but delete
-  // explicitly first so it never blocks parent deletes for any reason.
-  const { data: ownerIdsForUser } = await supabase
-    .from('owners')
-    .select('id')
-    .eq('user_id', userId);
-  const ownerIdList = (ownerIdsForUser || []).map(o => o.id);
-  if (ownerIdList.length > 0) {
-    await supabase.from('owner_properties').delete().in('owner_id', ownerIdList);
-  }
-  await supabase.from('tenants').delete().eq('user_id', userId);
-  await supabase.from('properties').delete().eq('user_id', userId);
-  await supabase.from('owners').delete().eq('user_id', userId);
-}
 
 export async function generateDemo500Portfolio(supabase, userId) {
   if (!userId) throw new Error('generateDemo500Portfolio requires userId');
@@ -79,7 +49,8 @@ export async function generateDemo500Portfolio(supabase, userId) {
   const startedAt = Date.now();
   console.log('[demo500] Starting generation');
 
-  await clearExistingData(supabase, userId);
+  await clearAllUserData(supabase, userId);
+  await assertEmpty(supabase, userId);
 
   // 1. Owners.
   const ownerRows = buildOwnerRows(userId, 40);
