@@ -22,30 +22,49 @@ function trendArrow(direction, value) {
   );
 }
 
-export function KPICard({ label, value, subLine, sparkline, band, trend }) {
+export function KPICard({ label, value, subLine, sparkline, band, trend, emptyMessage }) {
   const accent = bandColor(band);
-  return (
-    <div
-      style={{
-        background: colors.surface.background,
-        border: `1px solid ${colors.surface.border}`,
-        borderRadius: radius.lg,
-        boxShadow: shadow.sm,
-        padding: spacing.xl,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: spacing.md,
-        minHeight: 170
-      }}
-    >
-      <div style={{
-        fontSize: typography.sizes.sm,
-        color: colors.neutral[500],
-        fontWeight: typography.weights.medium,
-        letterSpacing: '0.02em'
-      }}>
-        {label}
+  const cardStyle = {
+    background: colors.surface.background,
+    border: `1px solid ${colors.surface.border}`,
+    borderRadius: radius.lg,
+    boxShadow: shadow.sm,
+    padding: spacing.xl,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: spacing.md,
+    minHeight: 170
+  };
+  const labelStyle = {
+    fontSize: typography.sizes.sm,
+    color: colors.neutral[500],
+    fontWeight: typography.weights.medium,
+    letterSpacing: '0.02em'
+  };
+
+  if (emptyMessage) {
+    return (
+      <div style={cardStyle}>
+        <div style={labelStyle}>{label}</div>
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          textAlign: 'center',
+          fontSize: typography.sizes.base,
+          color: colors.neutral[500],
+          lineHeight: 1.4
+        }}>
+          {emptyMessage}
+        </div>
       </div>
+    );
+  }
+
+  return (
+    <div style={cardStyle}>
+      <div style={labelStyle}>{label}</div>
       <div style={{
         fontSize: typography.sizes['4xl'],
         fontWeight: typography.weights.bold,

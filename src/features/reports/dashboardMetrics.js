@@ -28,21 +28,46 @@ export function totalsByMonth(now, months = 6) {
 }
 
 export function computeCollection(tenants, year, monthIndex) {
-  let expected = 0;
-  let collected = 0;
+  // Sum-of-payment-log based total. Used for the trailing 12-month chart
+  // where we need the actual dollars-paid-by-date series.
+  let logged = 0;
   tenants.forEach(t => {
-    if (t.status === 'current' || t.status === 'late') {
-      expected += t.rent_amount || 0;
-    }
     const log = Array.isArray(t.payment_log) ? t.payment_log : [];
     log.forEach(p => {
       const d = parseDate(p.date);
       if (d && d.getFullYear() === year && d.getMonth() === monthIndex) {
-        collected += p.amount || 0;
+        logged += p.amount || 0;
       }
     });
   });
-  return { expected, collected, rate: expected > 0 ? (collected / expected) * 100 : 0 };
+  return { collected: logged };
+}
+
+// Snapshot collection rate. status==='current' means paid for the current
+// period in this app's model; status==='late' means rent is due but unpaid.
+// Past and prospect tenants aren't expected to pay so they're excluded.
+export function computeCollectionSnapshot(tenants) {
+  let expectedDollars = 0;
+  let collectedDollars = 0;
+  let currentCount = 0;
+  let lateCount = 0;
+  tenants.forEach(t => {
+    if (t.status === 'current') {
+      expectedDollars += t.rent_amount || 0;
+      collectedDollars += t.rent_amount || 0;
+      currentCount += 1;
+    } else if (t.status === 'late') {
+      expectedDollars += t.rent_amount || 0;
+      lateCount += 1;
+    }
+  });
+  return {
+    expected: expectedDollars,
+    collected: collectedDollars,
+    currentCount,
+    lateCount,
+    rate: expectedDollars > 0 ? (collectedDollars / expectedDollars) * 100 : 0
+  };
 }
 
 export function computeOccupancyAt(tenants, properties, atDate) {
@@ -74,6 +99,10 @@ export function computeExpensesForMonth(properties, year, monthIndex) {
 }
 
 export function computeAverageDaysVacant(tenants, now) {
+  // Only count completed turns: a past tenant moved out, then a new tenant
+  // (current or late) actually started in the same property after that
+  // date. If there's no replacement, we don't know the real vacancy length
+  // yet and we shouldn't fabricate one from "now - move_out_date".
   const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
   const turns = [];
   const byProperty = new Map();
@@ -89,10 +118,13 @@ export function computeAverageDaysVacant(tenants, now) {
       if (!out || out < oneYearAgo) return;
       const replacement = list.find(t => {
         if (t.id === past.id) return false;
+        if (t.status !== 'current' && t.status !== 'late') return false;
         const start = parseDate(t.lease_start);
         return start && start > out;
       });
-      const refill = replacement ? parseDate(replacement.lease_start) : now;
+      if (!replacement) return;
+      const refill = parseDate(replacement.lease_start);
+      if (!refill) return;
       const days = Math.max(0, Math.round((refill - out) / MS_PER_DAY));
       turns.push(days);
     });

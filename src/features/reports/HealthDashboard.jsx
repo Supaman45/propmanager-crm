@@ -10,23 +10,31 @@ import {
   DollarIcon, FileTextIcon, CheckCircleIcon, ActivityIcon
 } from './icons.jsx';
 
-function bandFor(rate) {
-  if (rate >= 95) return 'good';
-  if (rate >= 85) return 'warn';
+// Per-KPI bands calibrated to operator norms. NOI is intentionally
+// neutral - too context-dependent for a fixed threshold.
+function collectionBand(rate) {
+  if (rate >= 90) return 'good';
+  if (rate >= 75) return 'warn';
+  return 'bad';
+}
+function occupancyBand(rate) {
+  if (rate >= 90) return 'good';
+  if (rate >= 80) return 'warn';
+  return 'bad';
+}
+function vacancyBand(days) {
+  if (days <= 30) return 'good';
+  if (days <= 60) return 'warn';
   return 'bad';
 }
 
 function buildSummary(data) {
   if (!data) return '';
   const { collection, occupancy, counts, actions } = data;
-  const dir = collection.deltaPercent > 0 ? 'up' : collection.deltaPercent < 0 ? 'down' : 'flat';
-  const deltaWord = dir === 'flat'
-    ? 'about the same as last month'
-    : (dir + ' ' + Math.abs(collection.deltaPercent) + ' percent from last month');
-  const ratePart = 'This month you collected ' + Math.round(collection.rate) + ' percent of expected rent, ' + deltaWord + '.';
-  const occPart = 'Occupancy is at ' + Math.round(occupancy.rate) + ' percent across ' + counts.properties + ' properties.';
-  const actionPart = actions.lateTenants + ' tenants are behind on rent and ' + actions.stuckMaintenance + ' maintenance requests are open.';
-  return ratePart + ' ' + occPart + ' ' + actionPart;
+  const ratePart = 'This month you collected ' + Math.round(collection.rate) + ' percent of expected rent across ' + counts.properties + ' properties.';
+  const latePart = actions.lateTenants + ' tenants are behind on rent.';
+  const occPart = 'Occupancy is at ' + Math.round(occupancy.rate) + ' percent.';
+  return ratePart + ' ' + latePart + ' ' + occPart;
 }
 
 function ChartCard({ title, subtitle, children }) {
@@ -168,14 +176,14 @@ export default function HealthDashboard({ onNavigate }) {
           value={formatPercent(data.collection.rate)}
           subLine={formatCurrencyShort(data.collection.collected) + ' of ' + formatCurrencyShort(data.collection.expected) + ' expected'}
           sparkline={data.collection.series}
-          band={bandFor(data.collection.rate)}
+          band={collectionBand(data.collection.rate)}
         />
         <KPICard
           label="Occupancy"
           value={formatPercent(data.occupancy.rate)}
           subLine={data.occupancy.occupied + ' of ' + data.occupancy.units + ' units'}
           sparkline={data.occupancy.series}
-          band={bandFor(data.occupancy.rate)}
+          band={occupancyBand(data.occupancy.rate)}
         />
         <KPICard
           label="Net Operating Income"
@@ -184,12 +192,20 @@ export default function HealthDashboard({ onNavigate }) {
           sparkline={data.noi.series}
           trend={{ direction: noiDir, label: '' }}
         />
-        <KPICard
-          label="Average Days Vacant"
-          value={String(data.vacancy.days)}
-          subLine={'across ' + data.vacancy.turnedCount + ' properties turned this year'}
-          sparkline={data.vacancy.series}
-        />
+        {data.vacancy.turnedCount < 5 ? (
+          <KPICard
+            label="Average Days Vacant"
+            emptyMessage="Not enough data yet. Need at least 5 completed turns in the last 12 months."
+          />
+        ) : (
+          <KPICard
+            label="Average Days Vacant"
+            value={String(data.vacancy.days)}
+            subLine={'across ' + data.vacancy.turnedCount + ' completed turns in the last 12 months'}
+            sparkline={data.vacancy.series}
+            band={vacancyBand(data.vacancy.days)}
+          />
+        )}
       </div>
 
       {/* Section 3: Charts */}

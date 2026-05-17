@@ -2,23 +2,23 @@
 // Clear All Data button in Settings and the 500-door generator's pre-load
 // reset.
 //
-// Only targets tables with a direct user-scoping column (user_id, or
-// added_by for record_tags). Tables without a direct user_id column
-// (inspection_checklists, checklist_items, checklist_photos,
-// application_documents, rental_references) are skipped on purpose -
-// they're either unused by the demo or handled via FK cascade from their
-// parent rows.
+// Child tables (sms_messages, maintenance_requests, payment_requests) are
+// cleared by FK rather than by user_id because rows inserted by Edge
+// Functions / webhooks using the service role can land with a null user_id
+// but a valid tenant_id. Filtering by user_id alone leaves those orphans
+// behind and they then block the tenant delete via FK constraints.
 //
 // Per-table errors are logged with the table name and re-thrown so a
-// silent failure can't pile up duplicate data. Tables that don't exist
-// in the user's project, or columns that don't exist on a table, are
-// treated as soft-skips rather than hard failures.
+// silent failure can't pile up duplicate data. Tables or columns that
+// don't exist in the user's project are treated as soft-skips.
 
 const SOFT_FAIL_CODES = new Set([
   '42P01', // relation does not exist
   '42703', // column does not exist
-  'PGRST205' // PostgREST schema cache miss for the table
+  'PGRST205' // PostgREST schema cache miss
 ]);
+
+const ID_CHUNK = 200;
 
 async function runDelete(supabase, table, applyFilter) {
   let query = supabase.from(table).delete();
@@ -34,6 +34,14 @@ async function runDelete(supabase, table, applyFilter) {
   }
   console.log(`[clearAll] cleared ${table}`);
   return { ok: true };
+}
+
+async function runDeleteByIds(supabase, table, column, ids) {
+  if (!ids || ids.length === 0) return;
+  for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    const slice = ids.slice(i, i + ID_CHUNK);
+    await runDelete(supabase, table, q => q.in(column, slice));
+  }
 }
 
 async function collectIds(supabase, table, column, filterColumn, filterValue) {
@@ -53,28 +61,41 @@ export async function clearAllUserData(supabase, userId) {
   if (!userId) throw new Error('clearAllUserData requires userId');
   console.log('[clearAll] starting wipe for user', userId);
 
-  // screening_results has no user_id - scope through tenant_applications.
+  // Pre-collect FK id lists from the parent tables we trust (user_id-scoped).
+  const tenantIds = await collectIds(supabase, 'tenants', 'id', 'user_id', userId);
+  const propertyIds = await collectIds(supabase, 'properties', 'id', 'user_id', userId);
   const applicationIds = await collectIds(supabase, 'tenant_applications', 'id', 'user_id', userId);
+  const ownerIds = await collectIds(supabase, 'owners', 'id', 'user_id', userId);
+
+  // Application children. screening_results has no user_id - scope via app_id.
   if (applicationIds.length > 0) {
-    await runDelete(supabase, 'screening_results', q => q.in('application_id', applicationIds));
+    await runDeleteByIds(supabase, 'screening_results', 'application_id', applicationIds);
   }
 
-  // Applications. tenant_applications has user_id directly.
+  // Applications. Clear by user_id AND by property_id to catch any rows a
+  // webhook or import might have inserted with a null user_id.
   await runDelete(supabase, 'tenant_applications', q => q.eq('user_id', userId));
+  await runDeleteByIds(supabase, 'tenant_applications', 'property_id', propertyIds);
 
-  // User-scoped child tables. Each is best-effort: if the table or column
-  // doesn't exist in this project, we log and move on.
-  await runDelete(supabase, 'maintenance_requests', q => q.eq('user_id', userId));
+  // Tenant-scoped child tables. Clear by tenant_id IN first (catches
+  // webhook-inserted rows that have no user_id) then by user_id (catches
+  // user-created rows that have no tenant_id, like manual maintenance).
+  await runDeleteByIds(supabase, 'sms_messages', 'tenant_id', tenantIds);
   await runDelete(supabase, 'sms_messages', q => q.eq('user_id', userId));
+
+  await runDeleteByIds(supabase, 'payment_requests', 'tenant_id', tenantIds);
   await runDelete(supabase, 'payment_requests', q => q.eq('user_id', userId));
+
+  await runDeleteByIds(supabase, 'maintenance_requests', 'tenant_id', tenantIds);
+  await runDelete(supabase, 'maintenance_requests', q => q.eq('user_id', userId));
+
+  // User-scoped only.
   await runDelete(supabase, 'record_tags', q => q.eq('added_by', userId));
   await runDelete(supabase, 'files', q => q.eq('user_id', userId));
 
-  // Owner-side junction. owner_properties has no user_id, so scope through
-  // the owners we're about to delete.
-  const ownerIds = await collectIds(supabase, 'owners', 'id', 'user_id', userId);
+  // Owner-side junction.
   if (ownerIds.length > 0) {
-    await runDelete(supabase, 'owner_properties', q => q.in('owner_id', ownerIds));
+    await runDeleteByIds(supabase, 'owner_properties', 'owner_id', ownerIds);
   }
 
   // Parents last. Tenants before properties because tenants.property_id
@@ -86,8 +107,8 @@ export async function clearAllUserData(supabase, userId) {
   console.log('[clearAll] wipe complete');
 }
 
-// Idempotency guard for the demo loader. Throws with a clear message if the
-// user still has bulk data left over; prevents accidental double-loads.
+// Idempotency guard for the demo loader. Throws with a clear message if
+// the user still has bulk data left over; prevents accidental double-loads.
 export async function assertEmpty(supabase, userId, { threshold = 50 } = {}) {
   const { count, error } = await supabase
     .from('properties')

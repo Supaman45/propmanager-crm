@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase.js';
 import {
   totalsByMonth,
   computeCollection,
+  computeCollectionSnapshot,
   computeOccupancyAt,
   computeExpensesForMonth,
   computeAverageDaysVacant,
@@ -47,22 +48,25 @@ export function useHealthDashboard() {
       const now = new Date();
       const months = totalsByMonth(now, 6);
 
-      const collectionSeries = months.map(m => computeCollection(tenants, m.year, m.monthIndex).rate);
-      const occupancySeries = months.map(m => computeOccupancyAt(tenants, properties, new Date(m.year, m.monthIndex + 1, 0)));
-      const expenseSeries = months.map(m => computeExpensesForMonth(properties, m.year, m.monthIndex));
-      const revenueSeries = months.map(m => computeCollection(tenants, m.year, m.monthIndex).collected);
-      const noiSeries = revenueSeries.map((rev, i) => rev - expenseSeries[i]);
-
-      const thisMonth = months[months.length - 1];
-      const lastMonth = months[months.length - 2] || thisMonth;
-      const collectionThis = computeCollection(tenants, thisMonth.year, thisMonth.monthIndex);
-      const collectionLast = computeCollection(tenants, lastMonth.year, lastMonth.monthIndex);
-      const noiThis = noiSeries[noiSeries.length - 1];
-      const noiLast = noiSeries[noiSeries.length - 2] || 0;
-
+      // Snapshot-based KPIs. Status-driven so they don't depend on
+      // synthetic payment_log dates that may fall after "today".
+      const collectionSnapshot = computeCollectionSnapshot(tenants);
       const totalUnits = properties.reduce((sum, p) => sum + (p.units || 0), 0);
       const totalOccupied = tenants.filter(t => t.status === 'current' || t.status === 'late').length;
       const occupancyRate = totalUnits > 0 ? (totalOccupied / totalUnits) * 100 : 0;
+
+      // Sparklines for status-snapshot KPIs are flat at the current value.
+      // No fabricated trend until we have real historical snapshots stored.
+      const collectionSeries = months.map(() => collectionSnapshot.rate);
+      const occupancySeries = months.map(() => occupancyRate);
+
+      // NOI uses real historical dollars from payment_log and expenses
+      // JSONB, so its trend is grounded in data.
+      const expenseSeries = months.map(m => computeExpensesForMonth(properties, m.year, m.monthIndex));
+      const revenueSeries = months.map(m => computeCollection(tenants, m.year, m.monthIndex).collected);
+      const noiSeries = revenueSeries.map((rev, i) => rev - expenseSeries[i]);
+      const noiThis = noiSeries[noiSeries.length - 1];
+      const noiLast = noiSeries[noiSeries.length - 2] || 0;
 
       const vacancy = computeAverageDaysVacant(tenants, now);
 
@@ -85,10 +89,11 @@ export function useHealthDashboard() {
           totalOccupied
         },
         collection: {
-          rate: collectionThis.rate,
-          collected: collectionThis.collected,
-          expected: collectionThis.expected,
-          deltaPercent: Math.round(collectionThis.rate - collectionLast.rate),
+          rate: collectionSnapshot.rate,
+          collected: collectionSnapshot.collected,
+          expected: collectionSnapshot.expected,
+          currentCount: collectionSnapshot.currentCount,
+          lateCount: collectionSnapshot.lateCount,
           series: collectionSeries
         },
         occupancy: {
