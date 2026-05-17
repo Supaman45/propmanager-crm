@@ -3,7 +3,7 @@ import { useApplications } from '../hooks/useApplications';
 import ApplicationList from '../components/applications/ApplicationList';
 import ApplicationForm from '../components/applications/ApplicationForm';
 import ApplicationDetail from '../components/applications/ApplicationDetail';
-import { supabase } from '../supabase';
+import { supabase } from '../lib/supabase';
 import { runTenantScreening } from '../utils/runTenantScreening';
 
 const Applications = () => {

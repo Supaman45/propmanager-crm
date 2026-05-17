@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './TenantPortal.css';
-import { supabase } from './supabase';
+import { supabase } from './lib/supabase';
 
 function TenantPortal() {
   const [loggedInTenant, setLoggedInTenant] = useState(null);

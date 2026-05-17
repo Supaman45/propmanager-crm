@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import RoomSection from './RoomSection';
 import SignatureCapture from './SignatureCapture';
 import { useChecklists } from '../../hooks/useChecklists';
-import { supabase } from '../../supabase';
+import { supabase } from '../../lib/supabase';
 import { generateChecklistPDF } from '../../utils/generateChecklistPDF';
 
 const DEFAULT_ITEMS = {

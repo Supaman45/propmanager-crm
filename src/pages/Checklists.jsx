@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useChecklists } from '../hooks/useChecklists';
 import ChecklistList from '../components/checklists/ChecklistList';
 import ChecklistForm from '../components/checklists/ChecklistForm';
-import { supabase } from '../supabase';
+import { supabase } from '../lib/supabase';
 
 const Checklists = () => {
   const { checklists, loading, error, fetchChecklists, createChecklist, updateChecklist, deleteChecklist } = useChecklists();

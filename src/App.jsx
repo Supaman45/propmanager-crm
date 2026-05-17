@@ -1,11 +1,18 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import './App.css';
-import { supabase } from './supabase';
+import { supabase } from './lib/supabase';
 import Auth from './Auth';
 import TenantPortal from './TenantPortal';
 import PaymentPage from './PaymentPage';
 import Checklists from './pages/Checklists';
 import Applications from './pages/Applications';
+import { useToast } from './shared/hooks/useToast';
+import { formatCurrency } from './shared/utils/formatCurrency';
+import { formatLeaseEndDate } from './shared/utils/formatLeaseEndDate';
+import { formatTimeAgo } from './shared/utils/formatTimeAgo';
+import { generateDemo500Portfolio } from './features/dev-tools/demoData500';
+import { clearAllUserData } from './features/dev-tools/clearAllUserData';
+import HealthDashboard from './features/reports/HealthDashboard';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import Papa from 'papaparse';
@@ -257,6 +264,7 @@ function App() {
   const [propertySearchQuery, setPropertySearchQuery] = useState('');
   const [maintenanceSearchQuery, setMaintenanceSearchQuery] = useState('');
   const [maintenanceFilterTab, setMaintenanceFilterTab] = useState('all');
+  const [reportsSubtab, setReportsSubtab] = useState('health');
   const [showCompleted, setShowCompleted] = useState(false);
   const [smsMessages, setSmsMessages] = useState([]);
   const [selectedConversation, setSelectedConversation] = useState(null);
@@ -303,8 +311,7 @@ function App() {
   const [tenantFiles, setTenantFiles] = useState([]);
   const [propertyFiles, setPropertyFiles] = useState([]);
   
-  // Toast notifications
-  const [toasts, setToasts] = useState([]);
+  const { toasts, showToast, dismissToast } = useToast();
   
   // Schedule state
   const [scheduleEvents, setScheduleEvents] = useState([]);
@@ -2952,11 +2959,6 @@ function App() {
   };
 
   // Currency formatter function
-  const formatCurrency = (value) => {
-    if (value === null || value === undefined || isNaN(value)) return '$0';
-    return '$' + Number(value).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-  };
-
   // TagPicker Component (inline function component)
   const TagPicker = ({ recordType, recordId, existingTags = [], onTagsChange }) => {
     const recordTags = getTagsForRecord(recordType, recordId);
@@ -3225,34 +3227,6 @@ function App() {
     return avatarColors[hash % avatarColors.length];
   };
   
-  // Format lease end date
-  const formatLeaseEndDate = (leaseEnd, status) => {
-    if (!leaseEnd || status === 'prospect') return 'Pending';
-    const date = new Date(leaseEnd);
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
-  };
-
-  // Format time ago
-  const formatTimeAgo = (dateString) => {
-    if (!dateString) return 'Unknown';
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-    
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
-    
-    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-    if (diffDays < 30) return `${Math.floor(diffDays / 7)} week${Math.floor(diffDays / 7) > 1 ? 's' : ''} ago`;
-    if (diffDays < 365) return `${Math.floor(diffDays / 30)} month${Math.floor(diffDays / 30) > 1 ? 's' : ''} ago`;
-    return `${Math.floor(diffDays / 365)} year${Math.floor(diffDays / 365) > 1 ? 's' : ''} ago`;
-  };
-
   // EventCard component
   const EventCard = ({ event, type, compact }) => {
     const typeColors = {
@@ -3572,18 +3546,27 @@ function App() {
   // Reports helper functions
   const getReportsStats = () => {
     try {
-      // Calculate total revenue (from all current tenants' rent)
-      const totalRevenue = (tenants || [])
+      // Headline KPIs all use a trailing 12-month window so revenue and
+      // expenses are comparable. Revenue = current monthly rent roll x 12.
+      // Expenses = sum of property.expenses entries dated within last 12 months.
+      const monthlyRentRoll = (tenants || [])
         .filter(t => t && t.status === 'current' && (t.rentAmount || 0) > 0)
         .reduce((sum, t) => sum + (t.rentAmount || 0), 0);
-      
-      // Calculate total expenses (from all properties)
+      const totalRevenue = monthlyRentRoll * 12;
+
+      const cutoff = new Date();
+      cutoff.setFullYear(cutoff.getFullYear() - 1);
       const totalExpenses = (properties || []).reduce((sum, p) => {
-        if (!p) return sum;
-        const propertyExpenses = (p.expenses || []).reduce((expSum, exp) => expSum + (exp?.amount || 0), 0);
-        return sum + propertyExpenses;
+        if (!p || !Array.isArray(p.expenses)) return sum;
+        const trailing = p.expenses.reduce((expSum, exp) => {
+          if (!exp || !exp.date) return expSum;
+          const d = new Date(exp.date);
+          if (isNaN(d.getTime()) || d < cutoff) return expSum;
+          return expSum + (exp.amount || 0);
+        }, 0);
+        return sum + trailing;
       }, 0);
-      
+
       // Calculate net profit
       const netProfit = totalRevenue - totalExpenses;
       const profitMargin = totalRevenue > 0 ? Math.round((netProfit / totalRevenue) * 100) : 0;
@@ -3624,73 +3607,64 @@ function App() {
 
   // Get revenue vs expenses data for last 6 months
   const getRevenueVsExpensesData = () => {
-    // Use demo payment history if available, otherwise return sample data
+    // Trailing 12 months ending with the current month, oldest first. Pulls
+    // revenue from tenants.paymentLog (current+late) and expenses from
+    // properties.expenses JSONB, both keyed by entry date.
     const hasDemoData = tenants.length > 10 && properties.length > 5;
-    
-    if (hasDemoData) {
-      // Calculate from actual tenant payment logs and property expenses
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-      const months = [];
-      
-      for (let i = 0; i < 6; i++) {
-        const monthIndex = i;
-        const currentYear = 2026; // Demo data year
-        
-        // Calculate revenue from payment logs
-        let revenue = 0;
-        tenants
-          .filter(t => t.status === 'current')
-          .forEach(tenant => {
-            if (tenant.paymentLog && tenant.paymentLog.length > 0) {
-              tenant.paymentLog.forEach(payment => {
-                try {
-                  const paymentDate = new Date(payment.date);
-                  if (paymentDate.getMonth() === monthIndex && paymentDate.getFullYear() === currentYear) {
-                    revenue += payment.amount || 0;
-                  }
-                } catch (e) {
-                  // Skip invalid dates
-                }
-              });
-            }
-          });
-        
-        // Calculate expenses from property expenses
-        let expenses = 0;
-        properties.forEach(property => {
-          if (property && property.expenses && property.expenses.length > 0) {
-            property.expenses.forEach(expense => {
-              try {
-                const expenseDate = new Date(expense.date);
-                if (expenseDate.getMonth() === monthIndex && expenseDate.getFullYear() === currentYear) {
-                  expenses += expense.amount || 0;
-                }
-              } catch (e) {
-                // Skip invalid dates
-              }
-            });
-          }
-        });
-        
-        months.push({
-          month: monthNames[i],
-          revenue: Math.round(revenue) || 0,
-          expenses: Math.round(expenses) || 0
-        });
-      }
-      
-      return months;
+
+    if (!hasDemoData) {
+      return [
+        { month: 'Jan', revenue: 28400, expenses: 4200 },
+        { month: 'Feb', revenue: 28400, expenses: 3100 },
+        { month: 'Mar', revenue: 29250, expenses: 6800 },
+        { month: 'Apr', revenue: 29250, expenses: 2900 },
+        { month: 'May', revenue: 30100, expenses: 3500 },
+        { month: 'Jun', revenue: 30100, expenses: 4100 }
+      ];
     }
-    
-    // Return demo payment history data
-    return [
-      { month: 'Jan', revenue: 28400, expenses: 4200 },
-      { month: 'Feb', revenue: 28400, expenses: 3100 },
-      { month: 'Mar', revenue: 29250, expenses: 6800 },
-      { month: 'Apr', revenue: 29250, expenses: 2900 },
-      { month: 'May', revenue: 30100, expenses: 3500 },
-      { month: 'Jun', revenue: 30100, expenses: 4100 }
-    ];
+
+    const now = new Date();
+    const buckets = [];
+    for (let monthsAgo = 11; monthsAgo >= 0; monthsAgo--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - monthsAgo, 1);
+      buckets.push({
+        year: d.getFullYear(),
+        monthIndex: d.getMonth(),
+        label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+        revenue: 0,
+        expenses: 0
+      });
+    }
+    const findBucket = (date) => buckets.find(b => b.year === date.getFullYear() && b.monthIndex === date.getMonth());
+
+    tenants.forEach(tenant => {
+      if (tenant.status !== 'current' && tenant.status !== 'late') return;
+      const log = tenant.paymentLog || [];
+      log.forEach(p => {
+        if (!p?.date) return;
+        const d = new Date(p.date);
+        if (isNaN(d.getTime())) return;
+        const bucket = findBucket(d);
+        if (bucket) bucket.revenue += p.amount || 0;
+      });
+    });
+
+    properties.forEach(property => {
+      const expenses = property?.expenses || [];
+      expenses.forEach(e => {
+        if (!e?.date) return;
+        const d = new Date(e.date);
+        if (isNaN(d.getTime())) return;
+        const bucket = findBucket(d);
+        if (bucket) bucket.expenses += e.amount || 0;
+      });
+    });
+
+    return buckets.map(b => ({
+      month: b.label,
+      revenue: Math.round(b.revenue),
+      expenses: Math.round(b.expenses)
+    }));
   };
 
   // Get occupancy trend data for last 6 months
@@ -3709,38 +3683,39 @@ function App() {
   // Get revenue by property data for pie chart
   const getRevenueByPropertyData = () => {
     try {
-      // Calculate revenue per property from tenants
+      // Returns one entry per property sorted by monthly revenue desc. The
+      // Reports tab renders the top 10 as a horizontal bar chart and rolls
+      // the remainder into a single "and N other properties" summary row.
       const revenueMap = new Map();
-      
+
       (tenants || [])
         .filter(t => t && t.status === 'current' && (t.rentAmount || 0) > 0)
         .forEach(tenant => {
           if (tenant.property) {
-            const propertyName = tenant.property.split(',')[0] || tenant.property; // Get property address
+            const propertyName = tenant.property.split(',')[0] || tenant.property;
             const currentRevenue = revenueMap.get(propertyName) || 0;
             revenueMap.set(propertyName, currentRevenue + (tenant.rentAmount || 0));
           }
         });
-      
-      // If we have properties but no tenant revenue, use property monthlyRevenue
+
       if (revenueMap.size === 0 && (properties || []).length > 0) {
         (properties || []).forEach(property => {
           if (property && property.address) {
             const revenue = property.monthlyRevenue || 0;
             if (revenue > 0) {
-              revenueMap.set(property.address, revenue);
+              revenueMap.set(property.address.split(',')[0], revenue);
             }
           }
         });
       }
-      
-      // Convert map to array
-      const data = Array.from(revenueMap.entries()).map(([name, value]) => ({
-        name: name.length > 20 ? name.substring(0, 20) + '...' : name,
-        value: Math.round(value) || 0
-      }));
-      
-      // If no data, return placeholder
+
+      const data = Array.from(revenueMap.entries())
+        .map(([name, value]) => ({
+          name: name.length > 28 ? name.substring(0, 28) + '...' : name,
+          value: Math.round(value) || 0
+        }))
+        .sort((a, b) => b.value - a.value);
+
       if (data.length === 0) {
         return [
           { name: 'Property A', value: 3000 },
@@ -3748,7 +3723,7 @@ function App() {
           { name: 'Property C', value: 2000 }
         ];
       }
-      
+
       return data;
     } catch (error) {
       console.error('Error calculating revenue by property data:', error);
@@ -3759,9 +3734,6 @@ function App() {
       ];
     }
   };
-
-  // Pie chart colors
-  const pieChartColors = ['#1a73e8', '#0891b2', '#10b981', '#f59e0b', '#8b5cf6'];
 
   const getActionItems = () => {
     const latePayments = tenants
@@ -5612,7 +5584,7 @@ function App() {
       return;
     }
 
-    if (!confirm('⚠️ WARNING: This will permanently delete ALL your data including properties, tenants, maintenance requests, messages, and payment history. This cannot be undone. Are you absolutely sure?')) {
+    if (!confirm('⚠️ WARNING: This will permanently delete ALL your data including properties, tenants, maintenance requests, messages, payment history, owners, and applications. This cannot be undone. Are you absolutely sure?')) {
       return;
     }
 
@@ -5625,22 +5597,43 @@ function App() {
 
     setLoading(true);
     try {
-      // Delete in order to respect foreign key constraints
-      await supabase.from('sms_messages').delete().eq('user_id', user.id);
-      await supabase.from('maintenance_requests').delete().eq('user_id', user.id);
-      await supabase.from('tenants').delete().eq('user_id', user.id);
-      await supabase.from('properties').delete().eq('user_id', user.id);
+      await clearAllUserData(supabase, user.id);
 
       // Reset local state
       setTenants([]);
       setProperties([]);
       setMaintenanceRequests([]);
       setSmsMessages([]);
-      
+
       alert('All data has been cleared. Fresh start!');
     } catch (error) {
       console.error('Error clearing data:', error);
-      alert('Error clearing data: ' + error.message);
+      alert('Error clearing data: ' + error.message + '\n\nCheck the browser console for the full error and the table name that failed.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load 500-door demo portfolio (dev only)
+  const loadDemo500Portfolio = async () => {
+    if (!user) {
+      alert('Please log in first');
+      return;
+    }
+
+    if (!confirm('This will load a 500-door portfolio with 40 owners, 500 properties, 650 tenants, 150 maintenance requests, and 20 applications. It replaces all existing data and takes 30 to 60 seconds. Continue?')) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const summary = await generateDemo500Portfolio(supabase, user.id);
+      console.log('[demo500] Summary:', summary);
+      await loadData(user);
+      alert(`500-door demo loaded. Owners ${summary.owners}, properties ${summary.properties}, tenants ${summary.tenants}, maintenance ${summary.maintenance}, applications ${summary.applications}, screening results ${summary.screeningResults}.`);
+    } catch (error) {
+      console.error('Error loading 500-door demo:', error);
+      alert('Error loading 500-door demo: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -5756,15 +5749,6 @@ function App() {
       moveInNotes: ''
     });
     setShowAddModal(false);
-  };
-
-  // Toast helper function
-  const showToast = (message, type = 'error') => {
-    const toast = { message, type, id: Date.now() };
-    setToasts(prev => [...prev, toast]);
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== toast.id));
-    }, 4000);
   };
 
   // RequiredLabel component
@@ -7089,7 +7073,7 @@ function App() {
             <span style={{ fontSize: 18 }}>{toast.type === 'error' ? '⚠️' : toast.type === 'success' ? '✓' : 'ℹ️'}</span>
             <span style={{ flex: 1 }}>{toast.message}</span>
             <button 
-              onClick={() => setToasts(toasts.filter(t => t.id !== toast.id))} 
+              onClick={() => dismissToast(toast.id)}
               style={{ 
                 background: 'none', 
                 border: 'none', 
@@ -11820,16 +11804,8 @@ function App() {
                 
                 // Get revenue by property data for pie chart
                 const revenueByPropertyData = getRevenueByPropertyData();
+                // Reused below for the per-property color dot in Property Performance.
                 const pieColors = ['#1a73e8', '#0891b2', '#10b981', '#f97316'];
-                const totalRevenueForPie = revenueByPropertyData.reduce((sum, item) => sum + item.value, 0);
-                
-                // Helper function to get short property name
-                const getShortPropertyName = (name) => {
-                  if (!name) return 'Unknown';
-                  // Extract first part before comma or take first 15 chars
-                  const shortName = name.split(',')[0].trim();
-                  return shortName.length > 15 ? shortName.substring(0, 15) + '...' : shortName;
-                };
                 
                 return (
                   <div className="content-section" style={{padding: '24px'}}>
@@ -11848,7 +11824,48 @@ function App() {
                         Export Reports
                       </button>
                     </div>
-                    
+
+                    {/* Sub-tab nav */}
+                    <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid #e5e7eb' }}>
+                      {[{ id: 'health', label: 'Health Dashboard' }, { id: 'detailed', label: 'Detailed Reports' }].map(tab => (
+                        <button
+                          key={tab.id}
+                          onClick={() => setReportsSubtab(tab.id)}
+                          style={{
+                            padding: '12px 20px',
+                            background: 'transparent',
+                            border: 'none',
+                            borderBottom: reportsSubtab === tab.id ? '2px solid #1a73e8' : '2px solid transparent',
+                            cursor: 'pointer',
+                            color: reportsSubtab === tab.id ? '#1a73e8' : '#5f6368',
+                            fontWeight: reportsSubtab === tab.id ? 600 : 500,
+                            fontSize: 14,
+                            marginBottom: -1
+                          }}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {reportsSubtab === 'health' ? (
+                      <HealthDashboard
+                        onNavigate={(target, payload) => {
+                          if (target === 'tenants') {
+                            if (payload?.filter === 'late') setFilterStatus('late');
+                            else if (payload?.filter === 'prospect') setFilterStatus('prospect');
+                            else setFilterStatus('all');
+                            setActiveTab('tenants');
+                          } else if (target === 'maintenance') {
+                            if (payload?.filter === 'open') setMaintenanceFilterTab('open');
+                            setActiveTab('maintenance');
+                          } else if (target === 'properties') {
+                            setActiveTab('properties');
+                          }
+                        }}
+                      />
+                    ) : (
+                    <>
                     {/* Stats Cards */}
                     <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px'}}>
                       {/* Total Revenue */}
@@ -11910,7 +11927,7 @@ function App() {
                         <p style={{margin: 0, fontSize: '32px', fontWeight: '500', color: '#202124', marginBottom: '8px'}}>
                           {occupancyRate}%
                         </p>
-                        <p style={{margin: 0, fontSize: '12px', color: '#6b7280'}}>Last 6 months</p>
+                        <p style={{margin: 0, fontSize: '12px', color: '#6b7280'}}>Current snapshot</p>
                       </div>
                     </div>
                     
@@ -11919,7 +11936,7 @@ function App() {
                       {/* Revenue vs Expenses Chart */}
                       <div style={{background: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)'}}>
                         <h3 style={{margin: '0 0 4px', fontSize: '18px', fontWeight: '500', color: '#202124'}}>Revenue vs Expenses</h3>
-                        <p style={{margin: '0 0 24px', fontSize: '14px', color: '#5f6368'}}>Monthly comparison</p>
+                        <p style={{margin: '0 0 24px', fontSize: '14px', color: '#5f6368'}}>Last 12 months</p>
                         <ResponsiveContainer width="100%" height={300}>
                           <BarChart data={getRevenueVsExpensesData()}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -11956,42 +11973,48 @@ function App() {
                     
                     {/* Bottom Section */}
                     <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px'}}>
-                      {/* Revenue by Property Pie Chart */}
+                      {/* Top 10 Properties by Revenue */}
                       <div style={{background: 'white', padding: '24px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)'}}>
-                        <h3 style={{margin: '0 0 4px', fontSize: '18px', fontWeight: '500', color: '#202124'}}>Revenue by Property</h3>
-                        <p style={{margin: '0 0 24px', fontSize: '14px', color: '#5f6368'}}>Distribution</p>
-                        <ResponsiveContainer width="100%" height={250}>
-                          <PieChart>
-                            <Pie
-                              data={revenueByPropertyData}
-                              cx="50%"
-                              cy="50%"
-                              labelLine={false}
-                              outerRadius={80}
-                              fill="#8884d8"
-                              dataKey="value"
-                            >
-                              {revenueByPropertyData.map((entry, index) => {
-                                const color = pieColors[index % pieColors.length];
-                                return <Cell key={`cell-${index}`} fill={color} />;
-                              })}
-                            </Pie>
-                            <Tooltip formatter={(value) => formatCurrency(value)} />
-                          </PieChart>
-                        </ResponsiveContainer>
-                        {/* Custom Legend */}
-                        <div style={{display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px'}}>
-                          {revenueByPropertyData.map((entry, index) => {
-                            const percent = totalRevenueForPie > 0 ? ((entry.value / totalRevenueForPie) * 100).toFixed(0) : 0;
-                            return (
-                              <div key={index} style={{display: 'flex', alignItems: 'center', gap: '8px'}}>
-                                <div style={{width: '12px', height: '12px', borderRadius: '50%', background: pieColors[index % pieColors.length], flexShrink: 0}}></div>
-                                <span style={{fontSize: '14px', color: '#202124'}}>{getShortPropertyName(entry.name)}</span>
-                                <span style={{fontSize: '14px', color: '#5f6368', marginLeft: 'auto'}}>{percent}%</span>
-                              </div>
-                            );
-                          })}
-                        </div>
+                        <h3 style={{margin: '0 0 4px', fontSize: '18px', fontWeight: '500', color: '#202124'}}>Top 10 Properties by Revenue</h3>
+                        <p style={{margin: '0 0 24px', fontSize: '14px', color: '#5f6368'}}>Current monthly rent roll</p>
+                        {(() => {
+                          const top10 = revenueByPropertyData.slice(0, 10);
+                          const rest = revenueByPropertyData.slice(10);
+                          const restTotal = rest.reduce((sum, p) => sum + p.value, 0);
+                          return (
+                            <>
+                              <ResponsiveContainer width="100%" height={Math.max(220, top10.length * 26)}>
+                                <BarChart
+                                  data={top10}
+                                  layout="vertical"
+                                  margin={{ top: 4, right: 16, bottom: 4, left: 8 }}
+                                >
+                                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
+                                  <XAxis
+                                    type="number"
+                                    stroke="#6b7280"
+                                    tickFormatter={(value) => formatCurrency(value)}
+                                  />
+                                  <YAxis
+                                    type="category"
+                                    dataKey="name"
+                                    stroke="#6b7280"
+                                    width={150}
+                                    tick={{ fontSize: 12 }}
+                                  />
+                                  <Tooltip formatter={(value) => formatCurrency(value)} />
+                                  <Bar dataKey="value" fill="#1a73e8" name="Monthly revenue" />
+                                </BarChart>
+                              </ResponsiveContainer>
+                              {rest.length > 0 && (
+                                <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e5e7eb'}}>
+                                  <span style={{fontSize: '14px', color: '#5f6368'}}>and {rest.length} other {rest.length === 1 ? 'property' : 'properties'}</span>
+                                  <span style={{fontSize: '14px', fontWeight: '500', color: '#202124'}}>{formatCurrency(restTotal)}</span>
+                                </div>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                       
                       {/* Property Performance List */}
@@ -12367,6 +12390,8 @@ function App() {
                         )}
                       </div>
                     </div>
+                    </>
+                    )}
                   </div>
                 );
               })()}
@@ -14240,7 +14265,46 @@ function App() {
                               {loading ? 'Loading...' : 'Load Demo Data'}
                             </button>
                           </div>
-                          
+
+                          {/* Load 500-Door Demo Portfolio */}
+                          <div style={{
+                            background: '#eff6ff',
+                            border: '1px solid #bfdbfe',
+                            borderRadius: 8,
+                            padding: 16,
+                            marginBottom: 16
+                          }}>
+                            <h4 style={{ fontSize: 14, fontWeight: 600, color: '#1e40af', margin: '0 0 8px 0' }}>Load 500-Door Demo Portfolio</h4>
+                            <p style={{ fontSize: '13px', color: '#1e40af', margin: '0 0 12px 0' }}>
+                              Large dataset for prospect demos. 40 owners, 500 properties, 650 tenants, 150 maintenance requests, 20 applications, 12 months of payment and expense history. Takes 30 to 60 seconds.
+                            </p>
+                            <button
+                              onClick={loadDemo500Portfolio}
+                              disabled={loading}
+                              style={{
+                                background: '#1d4ed8',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: '6px',
+                                padding: '10px 20px',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                cursor: loading ? 'not-allowed' : 'pointer',
+                                opacity: loading ? 0.6 : 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8
+                              }}
+                            >
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                              </svg>
+                              {loading ? 'Loading...' : 'Load 500-Door Demo Portfolio'}
+                            </button>
+                          </div>
+
                           {/* Clear All Data */}
                           <div style={{ 
                             background: '#fef2f2', 

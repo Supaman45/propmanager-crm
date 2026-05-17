@@ -2,6 +2,21 @@
 
 Execute this plan phase by phase. Do not skip phases. After each phase, run the dev server, click through the affected feature, and commit before moving on. If anything breaks, revert the commit and flag it before continuing.
 
+## Baseline Metrics
+
+Captured at start of `refactor/structural-split` branch, 2026-04-19.
+
+- `src/App.jsx`: 21,333 lines
+- Production build: succeeds on Vite 5.4.21
+  - `dist/assets/index-BRrd8Ykx.js`: 1,688.52 kB (gzip: 455.10 kB)
+  - `dist/assets/html2canvas.esm-CBrSDip1.js`: 201.42 kB (gzip: 48.03 kB)
+  - `dist/assets/index.es-BmEwwyA5.js`: 150.44 kB (gzip: 51.42 kB)
+  - `dist/assets/purify.es-C_uT9hQ1.js`: 21.98 kB (gzip: 8.74 kB)
+  - `dist/assets/index-CwSzFtvW.css`: 42.56 kB (gzip: 8.00 kB)
+  - `dist/index.html`: 0.43 kB (gzip: 0.29 kB)
+  - Build time: 2.52s
+- Dev server: starts cleanly on http://localhost:5173 in 174 ms, no errors
+
 ## Project Context
 
 - Stack: React 18, Vite, Supabase (Postgres, Auth, Storage, Edge Functions), Vercel, Twilio
@@ -200,23 +215,32 @@ Commit: `refactor: scaffold folder structure and design tokens`
 
 ### Phase 2: Extract Shared UI Primitives
 
-Identify these recurring patterns in App.jsx and extract to `src/shared/components`:
-- Button styles used in more than two places
-- Modal wrapper (centered overlay with backdrop)
-- Toast notification
-- Form input wrapper with label and error state
-- Card container
-- Dropdown / Select
+Revised scope (Option B). The original Phase 2 called for a bulk find-and-replace across App.jsx (~400–600 inline sites across ~222 buttons, ~171 form fields, modals, dropdowns, etc.). That sweep would have produced one of two bad outcomes on a 21K-line monolith with no test suite: either pass-through wrappers that preserve every bespoke inline style (defeating consolidation), or flattened visuals that violate non-negotiable rule 3. Instead, this phase creates the primitives now and defers site-level adoption to each feature extraction phase (4–10), where the code is being rewritten anyway.
 
-For each primitive:
-1. Find every inline instance in App.jsx
-2. Create the shared component using tokens
-3. Replace inline instances with imports from `src/shared/components`
-4. Verify the UI looks identical
+Scope for this phase:
 
-Test after each primitive: dev server visual check.
+1. Create these primitive components in `src/shared/components/`, all using tokens, named exports:
+   - `Button.jsx` — variants (primary/secondary/ghost/danger), sizes (sm/md/lg), accepts `style` override for edge cases during adoption.
+   - `Modal.jsx` — centered overlay with backdrop, `open`, `onClose`, children.
+   - `Toast.jsx` — single toast card (the container stays in App.jsx for now).
+   - `Input.jsx` — label + input + error-state wrapper.
+   - `Select.jsx` — label + select + error-state wrapper.
+   - `Dropdown.jsx` — fixed backdrop + absolute menu.
+   - `Card.jsx` — padded container with token shadow/radius/border.
 
-Commit: `refactor: extract shared UI primitives to src/shared/components`
+2. Create `src/shared/hooks/useToast.js`. Lift the `toasts` state and `showToast` helper out of App.jsx into the hook. This is the one surgical App.jsx edit permitted in Phase 2:
+   - Replace `const [toasts, setToasts] = useState([]);` with `const { toasts, showToast, dismissToast } = useToast();`
+   - Remove the inline `showToast` definition.
+   - Update the dismiss button in the render container to call `dismissToast(toast.id)`.
+   - Keep the toast render container inline in App.jsx. Feature phases don't depend on its location.
+
+3. Do **not** touch any other part of App.jsx. Feature phases 4–10 each pick up the primitives for their own code as part of the relocate.
+
+Test: `npm run dev` boots without console errors, `npm run build` succeeds, bundle size within 5% of baseline. Manual smoke test: trigger a toast (e.g., save tenant) and confirm it still renders.
+
+Commit: `refactor: extract shared UI primitives and useToast hook`
+
+After this phase, `src/shared/components/` holds the primitives but nothing in `src/` imports them yet except `useToast` via App.jsx. This is expected — they are ready for adoption in Phase 4 onward.
 
 ### Phase 3: Extract Supabase Client and Utilities
 
@@ -302,6 +326,19 @@ The owner portal at `/owner-portal` is effectively a second app inside the same 
 Test: log in as an owner, verify all four portal tabs (overview, properties, tenants, statements) render.
 
 Commit: `refactor: extract owner portal`
+
+### Phase 10.5: Additions discovered during refactor
+
+Four feature folders not in the original target structure were identified during Phase 1 recon. They correspond to existing code at the src root or in legacy subfolders. Extract each with the same pattern as prior feature phases (hook → sub-components → page). Scope is relocate-and-rewire, not redesign.
+
+- `src/features/checklists/` — migrate from `src/pages/Checklists.jsx`, `src/components/checklists/`, and `src/hooks/useChecklists.js`. This feature is in-progress per CLAUDE.md; do not finish missing components here.
+- `src/features/auth/` — migrate from `src/Auth.jsx` and `src/Auth.css`. Auth behavior stays identical.
+- `src/features/tenant-portal/` — migrate from `src/TenantPortal.jsx` and `src/TenantPortal.css`. Tenant-facing portal; distinct from the owner portal extracted in Phase 10.
+- `src/features/payments/` — migrate from `src/PaymentPage.jsx` and `src/PaymentPage.css`.
+
+Test each sub-migration: the affected route still loads, no console errors, feature still functions end to end.
+
+Commits: one per sub-feature, in the form `refactor: extract <feature-name> feature`.
 
 ### Phase 11: Slim Down App.jsx
 
