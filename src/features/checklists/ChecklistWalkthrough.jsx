@@ -4,16 +4,23 @@ import { useWalkthrough } from './useWalkthrough.js';
 import { WalkthroughProgress } from './WalkthroughProgress.jsx';
 import { WalkthroughRoom } from './WalkthroughRoom.jsx';
 import { WalkthroughItem } from './WalkthroughItem.jsx';
+import { WalkthroughSummary } from './WalkthroughSummary.jsx';
+import { SignatureHandoff } from './SignatureHandoff.jsx';
 
 // Full-screen mobile-first walkthrough shell. Hides the surrounding app
 // chrome by rendering as a fixed overlay at z-index 100. State-only, no
 // new route, controlled by the parent (Checklists page) via `open` and
 // `onClose`. The signature and summary screens land in later commits.
 
+const STAGE_INSPECTING = 'inspecting';
+const STAGE_SUMMARY = 'summary';
+const STAGE_SIGNING = 'signing';
+
 export default function ChecklistWalkthrough({ checklistId, open, onClose }) {
   const w = useWalkthrough(checklistId);
   const [showAddRoom, setShowAddRoom] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
+  const [stage, setStage] = useState(STAGE_INSPECTING);
 
   if (!open) return null;
 
@@ -55,9 +62,45 @@ export default function ChecklistWalkthrough({ checklistId, open, onClose }) {
     setShowAddRoom(false);
   };
 
-  const onComplete = () => {
+  const goToSummary = () => setStage(STAGE_SUMMARY);
+  const goToSigning = () => setStage(STAGE_SIGNING);
+  const goBackToInspecting = () => setStage(STAGE_INSPECTING);
+
+  const handleSignaturesComplete = async () => {
+    try {
+      await w.markComplete();
+    } catch (err) {
+      console.error('[ChecklistWalkthrough] markComplete failed:', err);
+    }
     onClose && onClose({ complete: true, checklistId });
   };
+
+  if (stage === STAGE_SUMMARY) {
+    return (
+      <div style={overlayStyle}>
+        <WalkthroughProgress progress={w.progress} onClose={onClose} />
+        <WalkthroughSummary
+          progress={w.progress}
+          items={w.items}
+          onBack={goBackToInspecting}
+          onGetSignatures={goToSigning}
+        />
+      </div>
+    );
+  }
+
+  if (stage === STAGE_SIGNING) {
+    return (
+      <div style={overlayStyle}>
+        <WalkthroughProgress progress={w.progress} onClose={onClose} />
+        <SignatureHandoff
+          onSaveSignature={(dataUrl, type) => w.saveSignature(dataUrl, type)}
+          onComplete={handleSignaturesComplete}
+          onCancel={goBackToInspecting}
+        />
+      </div>
+    );
+  }
 
   return (
     <div style={overlayStyle}>
@@ -83,7 +126,7 @@ export default function ChecklistWalkthrough({ checklistId, open, onClose }) {
           isLastRoom={w.currentRoomIndex === w.rooms.length - 1}
           onPrevious={w.previousRoom}
           onNext={w.nextRoom}
-          onComplete={onComplete}
+          onComplete={goToSummary}
           onAddRoom={() => setShowAddRoom(true)}
         >
           {w.currentRoomItems.map(item => (
