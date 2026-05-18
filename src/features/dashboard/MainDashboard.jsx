@@ -1,6 +1,7 @@
 import { colors, spacing, radius, shadow, typography } from '../../shared/styles/tokens.js';
 import { useMainDashboard } from './useMainDashboard.js';
 import { timeOfDayGreeting, formatHeaderDate } from './mainDashboardMetrics.js';
+import { KPICard } from '../reports/KPICard.jsx';
 
 // Operator command center. Greeting + the single most important thing to
 // do today at the top, then KPI strip, Due Dates panel, YoY charts,
@@ -85,7 +86,47 @@ export default function MainDashboard({ displayName, onNavigate }) {
         </button>
       </section>
 
-      <SectionPlaceholder title="KPI strip" note="Collection Rate, Occupancy, NOI, Open Maintenance with trend arrows and sparklines. Coming next commit." />
+      {data.kpis ? (
+        <section style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+          gap: spacing.lg
+        }}>
+          <KPICard
+            label="Collection Rate"
+            value={data.kpis.collection.value}
+            subLine={data.kpis.collection.subLine}
+            sparkline={data.kpis.collection.series}
+            band={data.kpis.collection.band}
+            trend={data.kpis.collection.trend}
+          />
+          <KPICard
+            label="Occupancy"
+            value={data.kpis.occupancy.value}
+            subLine={data.kpis.occupancy.subLine}
+            sparkline={data.kpis.occupancy.series}
+            band={data.kpis.occupancy.band}
+            trend={data.kpis.occupancy.trend}
+          />
+          <KPICard
+            label="Net Operating Income"
+            value={data.kpis.noi.value}
+            subLine={data.kpis.noi.subLine}
+            sparkline={data.kpis.noi.series}
+            band={data.kpis.noi.band}
+            trend={data.kpis.noi.trend}
+          />
+          <KPICard
+            label="Open Maintenance"
+            value={data.kpis.openMaintenance.value}
+            subLine={data.kpis.openMaintenance.subLine}
+            sparkline={data.kpis.openMaintenance.series}
+            band={data.kpis.openMaintenance.band}
+            trend={data.kpis.openMaintenance.trend}
+            invert={true}
+          />
+        </section>
+      ) : null}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: spacing.lg }}>
         <SectionPlaceholder title="Due in the next 14 days" note="Lease expirations, late rent, stuck maintenance, vendor follow-ups." />
