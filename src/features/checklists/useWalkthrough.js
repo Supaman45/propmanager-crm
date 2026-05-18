@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useChecklists } from '../../hooks/useChecklists.js';
 import { supabase } from '../../lib/supabase.js';
 
@@ -27,8 +27,15 @@ function groupByRoom(items) {
 }
 
 export function useWalkthrough(checklistId) {
+  // useChecklists does not memoize its functions, so destructuring would
+  // give us a fresh identity for fetchChecklist on every render. That
+  // identity would invalidate every useCallback that depended on it, and
+  // the load effect would re-fire forever. Hold the latest functions in
+  // a ref instead and read through the ref so our callbacks stay stable.
+  // Refactoring useChecklists itself is deferred to Phase 10.5.
   const checklistApi = useChecklists();
-  const { fetchChecklist, saveChecklistItem, uploadPhoto, uploadSignature, updateChecklist, deletePhoto } = checklistApi;
+  const apiRef = useRef(checklistApi);
+  apiRef.current = checklistApi;
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -42,7 +49,7 @@ export function useWalkthrough(checklistId) {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchChecklist(checklistId);
+      const data = await apiRef.current.fetchChecklist(checklistId);
       if (!data) throw new Error('Checklist not found');
       setChecklist(data);
       setItems(Array.isArray(data.checklist_items) ? data.checklist_items : []);
@@ -52,7 +59,7 @@ export function useWalkthrough(checklistId) {
     } finally {
       setLoading(false);
     }
-  }, [checklistId, fetchChecklist]);
+  }, [checklistId]);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -82,7 +89,7 @@ export function useWalkthrough(checklistId) {
     setItems(prev => prev.map(i => i.id === patch.id ? { ...i, ...patch } : i));
     setSavingItemIds(prev => new Set(prev).add(patch.id));
     try {
-      const persisted = await saveChecklistItem(checklistId, { ...patch });
+      const persisted = await apiRef.current.saveChecklistItem(checklistId, { ...patch });
       if (persisted && persisted.id) {
         setItems(prev => prev.map(i => i.id === patch.id ? { ...i, ...persisted } : i));
       }
@@ -95,7 +102,7 @@ export function useWalkthrough(checklistId) {
         return next;
       });
     }
-  }, [checklistId, saveChecklistItem]);
+  }, [checklistId]);
 
   // Photo capture. uploadPhoto returns a public URL but does not insert
   // the checklist_photos row, so we do that here. Items expose photos
@@ -103,7 +110,7 @@ export function useWalkthrough(checklistId) {
   // fetchChecklist.
   const addPhotoToItem = useCallback(async (item, file) => {
     if (!item || !file) return null;
-    const publicUrl = await uploadPhoto(file, checklistId, item.id);
+    const publicUrl = await apiRef.current.uploadPhoto(file, checklistId, item.id);
     if (!publicUrl) return null;
     const { data: inserted, error: insertError } = await supabase
       .from('checklist_photos')
@@ -120,7 +127,7 @@ export function useWalkthrough(checklistId) {
       return { ...i, checklist_photos: [...existing, inserted] };
     }));
     return inserted;
-  }, [checklistId, uploadPhoto]);
+  }, [checklistId]);
 
   const removePhotoFromItem = useCallback(async (item, photo) => {
     if (!item || !photo) return;
@@ -134,11 +141,11 @@ export function useWalkthrough(checklistId) {
         await supabase.from('checklist_photos').delete().eq('id', photo.id);
       }
       const url = photo.photo_url || photo.url;
-      if (url) await deletePhoto(url);
+      if (url) await apiRef.current.deletePhoto(url);
     } catch (err) {
       console.error('[useWalkthrough] delete photo failed:', err);
     }
-  }, [deletePhoto]);
+  }, []);
 
   // Add a new room with no default items. The PM types item names inside
   // the room. Items get a temp id until the first save resolves.
@@ -158,7 +165,7 @@ export function useWalkthrough(checklistId) {
     setCurrentRoomIndex(rooms.length);
     for (const it of fresh) {
       try {
-        const persisted = await saveChecklistItem(checklistId, { ...it, id: undefined });
+        const persisted = await apiRef.current.saveChecklistItem(checklistId, { ...it, id: undefined });
         if (persisted && persisted.id) {
           setItems(prev => prev.map(i => i.id === it.id ? { ...i, ...persisted } : i));
         }
@@ -166,18 +173,18 @@ export function useWalkthrough(checklistId) {
         console.error('[useWalkthrough] save new item failed:', err);
       }
     }
-  }, [checklistId, items.length, rooms.length, saveChecklistItem]);
+  }, [checklistId, items.length, rooms.length]);
 
   const saveSignature = useCallback(async (dataUrl, signatureType) => {
     if (!dataUrl || (signatureType !== 'tenant' && signatureType !== 'inspector')) return;
-    const url = await uploadSignature(dataUrl, checklistId, signatureType);
+    const url = await apiRef.current.uploadSignature(dataUrl, checklistId, signatureType);
     const stampField = signatureType === 'tenant' ? 'signed_by_tenant_at' : 'signed_by_pm_at';
     const urlField = signatureType === 'tenant' ? 'tenant_signature_url' : 'inspector_signature_url';
     const patch = { [urlField]: url, [stampField]: new Date().toISOString() };
-    await updateChecklist(checklistId, patch);
+    await apiRef.current.updateChecklist(checklistId, patch);
     setChecklist(prev => prev ? { ...prev, ...patch } : prev);
     return url;
-  }, [checklistId, uploadSignature, updateChecklist]);
+  }, [checklistId]);
 
   // inspection_checklists.status check constraint accepts only these three
   // values. Keep the consumer in charge of which transition fires when.
@@ -187,9 +194,9 @@ export function useWalkthrough(checklistId) {
       throw new Error(`Invalid checklist status "${newStatus}"; expected one of ${allowed.join(', ')}`);
     }
     const patch = { status: newStatus, ...extra };
-    await updateChecklist(checklistId, patch);
+    await apiRef.current.updateChecklist(checklistId, patch);
     setChecklist(prev => prev ? { ...prev, ...patch } : prev);
-  }, [checklistId, updateChecklist]);
+  }, [checklistId]);
 
   const setPdfPath = useCallback(async (path) => {
     if (!path) return;
