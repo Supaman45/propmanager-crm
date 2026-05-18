@@ -3,6 +3,7 @@ import { useMainDashboard } from './useMainDashboard.js';
 import { timeOfDayGreeting, formatHeaderDate } from './mainDashboardMetrics.js';
 import { KPICard } from '../reports/KPICard.jsx';
 import { DueDatesPanel } from './DueDatesPanel.jsx';
+import { MainDashboardCharts } from './MainDashboardCharts.jsx';
 
 // Operator command center. Greeting + the single most important thing to
 // do today at the top, then KPI strip, Due Dates panel, YoY charts,
@@ -139,7 +140,11 @@ export default function MainDashboard({ displayName, onNavigate }) {
           onNavigate={onNavigate}
           onSeeAll={() => onNavigate && onNavigate({ tab: 'tenants' })}
         />
-        <SectionPlaceholder title="Year-over-year" note="Revenue and occupancy YoY bar charts." />
+        <MainDashboardCharts
+          revenue={data.yoyRevenue}
+          occupancy={data.yoyOccupancy}
+          year={data.year}
+        />
       </div>
 
       <SectionPlaceholder title="Action items" note="Top 3-5 things to act on, sorted by impact." />

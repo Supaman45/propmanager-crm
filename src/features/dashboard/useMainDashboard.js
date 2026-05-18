@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase.js';
 import { computeMostImportantItem, computeKpis } from './mainDashboardMetrics.js';
 import { computeDueDates } from './dueDateRows.js';
+import { computeYoyRevenue, computeYoyOccupancy } from './yoyData.js';
 
 // Main Dashboard data hook. Mirrors useHealthDashboard's fetch shape so
 // the two pages can coexist without leaking concerns. Returns raw lists
@@ -47,7 +48,10 @@ export function useMainDashboard() {
         ...raw,
         mostImportantItem: computeMostImportantItem(raw, now),
         kpis: computeKpis(raw, now),
-        dueDates: computeDueDates(raw, now)
+        dueDates: computeDueDates(raw, now),
+        yoyRevenue: computeYoyRevenue(raw, now),
+        yoyOccupancy: computeYoyOccupancy(raw, now),
+        year: now.getFullYear()
       });
     } catch (err) {
       console.error('[useMainDashboard]', err);
