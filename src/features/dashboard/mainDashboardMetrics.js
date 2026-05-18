@@ -62,12 +62,14 @@ export function computeMostImportantItem(data, now = new Date()) {
   }
 
   // 3. Tenants more than 5 days late on rent. Uses the same "late"
-  // definition as the Tenants tab (status current, paymentStatus late)
+  // definition as the Tenants tab (status current, payment_status late)
   // plus a heuristic of "today is past the 5th of the month" since the
-  // rent due date itself isn't stored per tenant in this schema.
+  // rent due date itself isn't stored per tenant in this schema. Hook
+  // returns raw Supabase rows (snake_case), so read payment_status
+  // directly rather than the camelCase form used in App.jsx state.
   if (now.getDate() > 5) {
     const lateTenants = tenants.filter(t =>
-      (t.status === 'current' || t.status === 'Current') && t.paymentStatus === 'late'
+      (t.status === 'current' || t.status === 'Current') && t.payment_status === 'late'
     );
     if (lateTenants.length > 0) {
       return {

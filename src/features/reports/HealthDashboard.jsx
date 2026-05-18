@@ -30,9 +30,13 @@ function vacancyBand(days) {
 
 function buildSummary(data) {
   if (!data) return '';
-  const { collection, occupancy, counts, actions } = data;
+  const { collection, occupancy, counts } = data;
   const ratePart = 'This month you collected ' + Math.round(collection.rate) + ' percent of expected rent across ' + counts.properties + ' properties.';
-  const latePart = actions.lateTenants + ' tenants are behind on rent.';
+  // Single source of truth for the late count: computeCollectionSnapshot
+  // uses the canonical compound rule (status=current + payment_status=late)
+  // plus a legacy fallback. computeActions.lateTenants still uses the old
+  // top-level status==='late' rule and would report 0 on current demo data.
+  const latePart = collection.lateCount + ' tenants are behind on rent.';
   const occPart = 'Occupancy is at ' + Math.round(occupancy.rate) + ' percent.';
   return ratePart + ' ' + latePart + ' ' + occPart;
 }
@@ -238,10 +242,14 @@ export default function HealthDashboard({ onNavigate }) {
               tone="warning"
               onClick={() => onNavigate && onNavigate('tenants', { filter: 'expiring' })}
             />
+            {/* Late count reads from collection.lateCount (the canonical
+                compound rule via computeCollectionSnapshot) rather than
+                actions.lateTenants, which is still on the legacy
+                status==='late' rule and reports 0 against current demo data. */}
             <ActionItem
               icon={AlertIcon}
-              label={data.actions.lateTenants + ' tenants behind on rent'}
-              count={data.actions.lateTenants}
+              label={data.collection.lateCount + ' tenants behind on rent'}
+              count={data.collection.lateCount}
               tone="urgent"
               onClick={() => onNavigate && onNavigate('tenants', { filter: 'late' })}
             />

@@ -65,11 +65,13 @@ export function computeActionItems(data, now = new Date(), { limit = 5 } = {}) {
   }
 
   // Late rent past day 5. Uses the same "late" definition as the Tenants
-  // tab kanban (status is current, paymentStatus is late) so the
-  // click-through lands on a populated list.
+  // tab kanban (status is current, payment_status is late) so the
+  // click-through lands on a populated list. Note: this hook returns raw
+  // Supabase rows (snake_case), unlike App.jsx state which is transformed
+  // to camelCase. Read payment_status directly here.
   if (now.getDate() > 5) {
     const lateTenants = tenants.filter(t =>
-      (t.status === 'current' || t.status === 'Current') && t.paymentStatus === 'late'
+      (t.status === 'current' || t.status === 'Current') && t.payment_status === 'late'
     );
     if (lateTenants.length > 0) {
       items.push({

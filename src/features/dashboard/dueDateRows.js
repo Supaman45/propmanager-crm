@@ -34,10 +34,12 @@ export function computeDueDates(data, now = new Date(), { horizonDays = 14, limi
   // Tenants over 5 days late on rent. Only show after the 5th since
   // before then "late" status is normal early-month timing. Uses the
   // same "late" definition as the Tenants tab (status current,
-  // paymentStatus late).
+  // payment_status late). Hook returns raw Supabase rows (snake_case),
+  // so read payment_status directly rather than the camelCase form
+  // used in App.jsx state.
   if (now.getDate() > 5) {
     tenants.forEach(t => {
-      const isLate = (t.status === 'current' || t.status === 'Current') && t.paymentStatus === 'late';
+      const isLate = (t.status === 'current' || t.status === 'Current') && t.payment_status === 'late';
       if (!isLate) return;
       const daysLate = now.getDate();
       rows.push({

@@ -123,6 +123,14 @@ Statuses: `OPEN`, `RESOLVED`, `WONTFIX`, `NOTED`.
 - Details: `src/components/checklists/ChecklistForm.jsx` exposed a status dropdown with values `draft`, `in_progress`, `completed`. The actual `inspection_checklists.status` check constraint in production is `status::text = ANY (ARRAY['draft', 'completed', 'signed'])` so any save with `in_progress` selected fails with `inspection_checklists_status_check`. `src/components/checklists/ChecklistList.jsx` had the same `in_progress` value as a filter option, which never matched any row. Pre-existing bug on `main` before tonight's walkthrough work; the walkthrough code only ever wrote `completed`, but did so at the wrong point in the state machine.
 - Resolution: Replaced `in_progress` with `signed` in both the form dropdown and the list filter. Walkthrough state machine now writes `draft` during inspection (default), `completed` when the PM finishes the room walk and arrives at the summary screen, and `signed` after both signatures plus PDF upload. Added a strict allowlist guard in `useWalkthrough.setStatus` so future code can't silently write invalid values.
 
+## [NOTED] Dashboard hooks return snake_case rows, App.jsx state is camelCase
+
+- Date: 2026-05-18
+- Phase: Main Dashboard command center work
+- Details: Dashboard hooks return raw Supabase rows (snake_case) while App.jsx state holds transformed rows (camelCase). This split caused two field-reference bugs (`paymentStatus` vs `payment_status`): the Main Dashboard Action Items "Follow up with N tenants late on rent" row, Due Dates panel late-rent rows, and most-important-item escalation all checked `t.paymentStatus === 'late'` against raw snake_case rows and always resolved to 0. Separately, the Health Dashboard banner counted late tenants via `computeActions` (legacy `t.status === 'late'` rule) which returned 0 after the lateness model alignment shipped on 2026-05-17.
+- Resolution this commit: patched the three Main Dashboard helpers to read `payment_status` directly, and pointed the Health Dashboard banner at `data.collection.lateCount` (already computed by `computeCollectionSnapshot` with the canonical compound rule). Legacy `computeActions.lateTenants` left in place.
+- Proposed fix: Phase 9 `usePortfolioData` shared hook should standardize the field naming at the hook boundary (transform snake_case → camelCase once, the same way App.jsx's `transformTenantForApp` already does), then dashboard metrics modules can drop the snake_case awareness and stop being a footgun for the next contributor. Pairs with the existing "extract usePortfolioData base hook" finding above.
+
 ## [OPEN] properties.owner_id type mismatch with owners.id
 
 - Date: 2026-05-16
