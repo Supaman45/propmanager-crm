@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useChecklists } from '../hooks/useChecklists';
 import ChecklistList from '../components/checklists/ChecklistList';
 import ChecklistForm from '../components/checklists/ChecklistForm';
+import ChecklistWalkthrough from '../features/checklists/ChecklistWalkthrough';
 import { supabase } from '../lib/supabase';
 
 const Checklists = () => {
   const { checklists, loading, error, fetchChecklists, createChecklist, updateChecklist, deleteChecklist } = useChecklists();
   const [view, setView] = useState('list'); // 'list', 'create', 'edit', 'view'
   const [selectedChecklistId, setSelectedChecklistId] = useState(null);
+  const [walkthroughId, setWalkthroughId] = useState(null);
   const [properties, setProperties] = useState([]);
   const [tenants, setTenants] = useState([]);
 
@@ -144,14 +146,25 @@ const Checklists = () => {
   }
 
   return (
-    <ChecklistList
-      checklists={checklists}
-      onView={handleView}
-      onEdit={handleEdit}
-      onDelete={handleDelete}
-      onCreate={handleCreate}
-      properties={properties}
-    />
+    <>
+      <ChecklistList
+        checklists={checklists}
+        onView={handleView}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+        onCreate={handleCreate}
+        onStartWalkthrough={(id) => setWalkthroughId(id)}
+        properties={properties}
+      />
+      <ChecklistWalkthrough
+        checklistId={walkthroughId}
+        open={!!walkthroughId}
+        onClose={async () => {
+          setWalkthroughId(null);
+          await fetchChecklists();
+        }}
+      />
+    </>
   );
 };
 
