@@ -51,6 +51,18 @@ Statuses: `OPEN`, `RESOLVED`, `WONTFIX`, `NOTED`.
 - Details: `add-owner-portal-migration.sql:23` declares `owner_statements.property_id UUID REFERENCES properties(id)`, but `properties.id` is `BIGINT` (`database-schema.sql:37`). The foreign key cannot resolve, so any insert into `owner_statements` with a real `property_id` will fail. The table is effectively unwritable until the column type is fixed. Discovered while building the 500-door demo generator — `owner_statements` was skipped entirely as a result.
 - Proposed fix: Migration to change `owner_statements.property_id` from `UUID` to `BIGINT` and re-add the foreign key. Coordinate with whatever UI is supposed to write to this table (owner statement generation flow) before deploying.
 
+## [OPEN] Tenant card "late" visual treatment checks wrong field
+
+- Date: 2026-05-17
+- Phase: Main Dashboard command center work, tenant lateness alignment
+- Details: Four sites color tenant cards or render late-payment UI based on `status === 'late'`:
+  - `App.jsx:1869` — tenant card "late" indicator in the Tenants kanban
+  - `App.jsx:1935` — payment reminder buttons on tenant cards (phone-based)
+  - `App.jsx:6817-6818` — Owner portal tenant card background coloring (red for late, green for current)
+- After the lateness model alignment (demo generator now writes `status='current'` + `payment_status='late'` for late tenants), these checks will never fire and the "late" red visual treatment disappears from those views. The Tenants tab Late pill filter, kanban column, and dashboards are unaffected because they use the canonical `(status === 'current') && (paymentStatus === 'late')` combination.
+- Proposed fix: replace `status === 'late'` with `paymentStatus === 'late'` (or `(status === 'current' || status === 'Current') && (paymentStatus === 'late')`) at each of the four sites. Mechanical change, single file.
+- Phase 10.5 candidate.
+
 ## [OPEN] Tenant lateness definition mismatch
 
 - Date: 2026-05-17

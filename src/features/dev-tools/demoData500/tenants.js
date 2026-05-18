@@ -207,7 +207,11 @@ export function buildTenantRows(userId, properties, totalTenants = 650) {
       security_deposit: status === 'prospect' ? 0 : rent,
       lease_start: start,
       lease_end: end,
-      status,
+      // "late" is a sub-state of current, not a top-level status, per
+      // the rest of the app's convention. Demo cohort label stays "late"
+      // internally for payment_log generation; DB write is mapped to
+      // current. See REFACTOR-FINDINGS.md tenant lateness mismatch.
+      status: status === 'late' ? 'current' : status,
       payment_status: paymentStatus,
       payment_date: paymentDate,
       payment_log: paymentLog,

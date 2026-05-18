@@ -43,9 +43,12 @@ export function computeCollection(tenants, year, monthIndex) {
   return { collected: logged };
 }
 
-// Snapshot collection rate. status==='current' means paid for the current
-// period in this app's model; status==='late' means rent is due but unpaid.
-// Past and prospect tenants aren't expected to pay so they're excluded.
+// Snapshot collection rate. "Late" is a sub-state of current per the app's
+// convention: a current tenant whose rent for this month hasn't been paid.
+// status==='current' + payment_status==='late' is the canonical late row.
+// status==='late' is recognized as a legacy back-compat path for any rows
+// from older demo data; it counts as late-but-not-collected the same way.
+// Past and prospect tenants are excluded.
 export function computeCollectionSnapshot(tenants) {
   let expectedDollars = 0;
   let collectedDollars = 0;
@@ -54,9 +57,15 @@ export function computeCollectionSnapshot(tenants) {
   tenants.forEach(t => {
     if (t.status === 'current') {
       expectedDollars += t.rent_amount || 0;
-      collectedDollars += t.rent_amount || 0;
-      currentCount += 1;
+      if (t.payment_status === 'late') {
+        lateCount += 1;
+      } else {
+        collectedDollars += t.rent_amount || 0;
+        currentCount += 1;
+      }
     } else if (t.status === 'late') {
+      // Legacy back-compat for older demo data that wrote 'late' as a
+      // top-level status. Counts as expected-but-not-collected.
       expectedDollars += t.rent_amount || 0;
       lateCount += 1;
     }
