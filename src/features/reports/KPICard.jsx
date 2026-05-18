@@ -10,10 +10,14 @@ function bandColor(band) {
   return colors.neutral[900];
 }
 
-function trendArrow(direction, value) {
+// `invert` flips the up/down → good/bad coloring. Use it for "more is worse"
+// metrics like Open Maintenance: an upward trend should read red, not green.
+// Default (invert=false) keeps the existing Health Dashboard behavior.
+function trendArrow(direction, value, invert = false) {
   if (!direction || value == null) return null;
   const Arrow = direction === 'up' ? ArrowUpIcon : ArrowDownIcon;
-  const tone = direction === 'up' ? colors.status.success : colors.status.danger;
+  const isPositive = invert ? direction === 'down' : direction === 'up';
+  const tone = isPositive ? colors.status.success : colors.status.danger;
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: spacing.xs, color: tone, fontSize: typography.sizes.sm }}>
       <Arrow size={14} color={tone} />
@@ -22,7 +26,7 @@ function trendArrow(direction, value) {
   );
 }
 
-export function KPICard({ label, value, subLine, sparkline, band, trend, emptyMessage }) {
+export function KPICard({ label, value, subLine, sparkline, band, trend, invert = false, emptyMessage }) {
   const accent = bandColor(band);
   const cardStyle = {
     background: colors.surface.background,
@@ -83,7 +87,7 @@ export function KPICard({ label, value, subLine, sparkline, band, trend, emptyMe
         minHeight: 20
       }}>
         <span>{subLine}</span>
-        {trend ? trendArrow(trend.direction, trend.label) : null}
+        {trend ? trendArrow(trend.direction, trend.label, invert) : null}
       </div>
       {sparkline ? (
         <div style={{ marginTop: 'auto' }}>

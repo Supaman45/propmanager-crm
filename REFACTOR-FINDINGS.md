@@ -51,6 +51,63 @@ Statuses: `OPEN`, `RESOLVED`, `WONTFIX`, `NOTED`.
 - Details: `add-owner-portal-migration.sql:23` declares `owner_statements.property_id UUID REFERENCES properties(id)`, but `properties.id` is `BIGINT` (`database-schema.sql:37`). The foreign key cannot resolve, so any insert into `owner_statements` with a real `property_id` will fail. The table is effectively unwritable until the column type is fixed. Discovered while building the 500-door demo generator — `owner_statements` was skipped entirely as a result.
 - Proposed fix: Migration to change `owner_statements.property_id` from `UUID` to `BIGINT` and re-add the foreign key. Coordinate with whatever UI is supposed to write to this table (owner statement generation flow) before deploying.
 
+## [OPEN] Tenant card "late" visual treatment checks wrong field
+
+- Date: 2026-05-17
+- Phase: Main Dashboard command center work, tenant lateness alignment
+- Details: Four sites color tenant cards or render late-payment UI based on `status === 'late'`:
+  - `App.jsx:1869` — tenant card "late" indicator in the Tenants kanban
+  - `App.jsx:1935` — payment reminder buttons on tenant cards (phone-based)
+  - `App.jsx:6817-6818` — Owner portal tenant card background coloring (red for late, green for current)
+- After the lateness model alignment (demo generator now writes `status='current'` + `payment_status='late'` for late tenants), these checks will never fire and the "late" red visual treatment disappears from those views. The Tenants tab Late pill filter, kanban column, and dashboards are unaffected because they use the canonical `(status === 'current') && (paymentStatus === 'late')` combination.
+- Proposed fix: replace `status === 'late'` with `paymentStatus === 'late'` (or `(status === 'current' || status === 'Current') && (paymentStatus === 'late')`) at each of the four sites. Mechanical change, single file.
+- Phase 10.5 candidate.
+
+## [OPEN] Tenant lateness definition mismatch
+
+- Date: 2026-05-17
+- Phase: Main Dashboard command center work
+- Details: Two definitions for one concept.
+  - `tenants` table has a `status` field with values 'current', 'late', 'past', 'prospect' (per the 500-door demo generator). 'late' is a top-level status.
+  - The Tenants tab's Late filter (App.jsx:1645, 8098, 2866, 3741, 3850, etc.) treats "late" as a sub-state: `(t.status === 'current' || t.status === 'Current') && t.paymentStatus === 'late'`. Late is a property of a Current tenant who hasn't paid this month.
+  - The 500-door demo generator writes `status='late'` AND `payment_status='late'` for the 98 "late" tenants, so the Tenants tab Late pill filter matches zero rows (`status='current'` excludes them), and the Late kanban column shows empty.
+  - Main Dashboard counted late tenants by `t.status === 'late'` (the field as written by the generator), so the action item said "98 tenants late on rent" while the Tenants tab said "Late (0)".
+- Resolution this commit: Main Dashboard `computeActionItems`, `computeMostImportantItem`, and `computeDueDates` now use the Tenants tab's `current + paymentStatus=late` convention so the count matches and the click-through lands on a populated list. With the current demo data the count drops to 0 and the action item correctly hides.
+- Phase 10.5 candidate: pick one definition and align everything.
+  - Option A: Fix the demo generator to write `status='current'` with `paymentStatus='late'` for late tenants. Lowest-risk, demo data update only.
+  - Option B: Promote 'late' to a real top-level status across the app, update the Tenants tab kanban and filters. Higher-risk, touches many files.
+  - Lean Option A.
+
+## [OPEN] No back affordance from detail panels
+
+- Date: 2026-05-17
+- Phase: Main Dashboard command center work
+- Details: Detail panels for tenant, maintenance, property, and owner have no "back" link or breadcrumb. A user who clicks into a tenant from the Main Dashboard's Due Dates panel and then closes the detail panel lands on the Tenants tab with no context of where they came from. This is a known AppFolio pain point worth solving well.
+- Three approaches worth considering: (a) contextual "Back to Dashboard" link in panel header, (b) navigation history stack in app state, (c) URL routing per detail page with browser back-button support. Option (c) is the strongest UX but is also the largest change since the rest of the app is tab-state-routed.
+- Defer to a dedicated mini-prompt between the current Prompt 2 (Main Dashboard) and Prompt 3 (visual design pass), or to Phase 9 refactor.
+
+## [OPEN] Tenant detail panel redesign
+
+- Date: 2026-05-17
+- Phase: Main Dashboard command center work
+- Details: The current tenant detail panel is functional but visually flat. Wanted for Prompt 3 (visual design language pass): activity timeline, lease progress bar, status badges, richer quick actions, better visual hierarchy.
+- In scope for Prompt 3.
+
+## [OPEN] Health Dashboard onNavigate uses legacy filter variable only
+
+- Date: 2026-05-17
+- Phase: Main Dashboard command center work
+- Details: `App.jsx:11315` (the `onNavigate` handler passed to `HealthDashboard`) writes only `filterStatus`, which is the legacy filter variable on the Tenants tab. The visible filter pill UI reads from `tenantFilter` (different variable). Result: clicking an Action Item on the Health Dashboard routes to the right tab but the filter pill never highlights. Same root bug as the one fixed in the Main Dashboard's `onNavigate` tonight. Per the "don't touch Health Dashboard" rule for the Main Dashboard work, this was left untouched.
+- Proposed fix: mirror the Main Dashboard's handler (set both `tenantFilter` and `filterStatus`). Single-file edit in `App.jsx`. Phase 10.5 candidate, or a quick standalone fix.
+- Deeper Phase 10.5 candidate: collapse `filterStatus` and `tenantFilter` into a single source of truth on the Tenants tab.
+
+## [OPEN] extract usePortfolioData base hook shared between dashboards
+
+- Date: 2026-05-17
+- Phase: Main Dashboard command center work
+- Details: `src/features/dashboard/useMainDashboard.js` and `src/features/reports/useHealthDashboard.js` both fetch the same four tables (tenants, properties, maintenance_requests, tenant_applications) with identical filter and shape. The Main Dashboard work duplicates the fetch on purpose to keep the Reports surface untouched, but this is real duplication and a future second consumer (e.g. an owner-side dashboard) would triple it.
+- Proposed fix: pull a shared `usePortfolioData` hook into `src/shared/hooks/` that returns the raw four-table snapshot, and let each feature hook layer derivations on top. Phase 9 candidate per PROPLI-REFACTOR.md.
+
 ## [OPEN] checklist PDF upload sometimes writes wrong storage path / skips DB update
 
 - Date: 2026-05-17
@@ -65,6 +122,14 @@ Statuses: `OPEN`, `RESOLVED`, `WONTFIX`, `NOTED`.
 - Phase: Checklists v1 walkthrough work
 - Details: `src/components/checklists/ChecklistForm.jsx` exposed a status dropdown with values `draft`, `in_progress`, `completed`. The actual `inspection_checklists.status` check constraint in production is `status::text = ANY (ARRAY['draft', 'completed', 'signed'])` so any save with `in_progress` selected fails with `inspection_checklists_status_check`. `src/components/checklists/ChecklistList.jsx` had the same `in_progress` value as a filter option, which never matched any row. Pre-existing bug on `main` before tonight's walkthrough work; the walkthrough code only ever wrote `completed`, but did so at the wrong point in the state machine.
 - Resolution: Replaced `in_progress` with `signed` in both the form dropdown and the list filter. Walkthrough state machine now writes `draft` during inspection (default), `completed` when the PM finishes the room walk and arrives at the summary screen, and `signed` after both signatures plus PDF upload. Added a strict allowlist guard in `useWalkthrough.setStatus` so future code can't silently write invalid values.
+
+## [NOTED] Dashboard hooks return snake_case rows, App.jsx state is camelCase
+
+- Date: 2026-05-18
+- Phase: Main Dashboard command center work
+- Details: Dashboard hooks return raw Supabase rows (snake_case) while App.jsx state holds transformed rows (camelCase). This split caused two field-reference bugs (`paymentStatus` vs `payment_status`): the Main Dashboard Action Items "Follow up with N tenants late on rent" row, Due Dates panel late-rent rows, and most-important-item escalation all checked `t.paymentStatus === 'late'` against raw snake_case rows and always resolved to 0. Separately, the Health Dashboard banner counted late tenants via `computeActions` (legacy `t.status === 'late'` rule) which returned 0 after the lateness model alignment shipped on 2026-05-17.
+- Resolution this commit: patched the three Main Dashboard helpers to read `payment_status` directly, and pointed the Health Dashboard banner at `data.collection.lateCount` (already computed by `computeCollectionSnapshot` with the canonical compound rule). Legacy `computeActions.lateTenants` left in place.
+- Proposed fix: Phase 9 `usePortfolioData` shared hook should standardize the field naming at the hook boundary (transform snake_case → camelCase once, the same way App.jsx's `transformTenantForApp` already does), then dashboard metrics modules can drop the snake_case awareness and stop being a footgun for the next contributor. Pairs with the existing "extract usePortfolioData base hook" finding above.
 
 ## [OPEN] properties.owner_id type mismatch with owners.id
 

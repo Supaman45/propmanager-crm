@@ -13,6 +13,7 @@ import { formatTimeAgo } from './shared/utils/formatTimeAgo';
 import { generateDemo500Portfolio } from './features/dev-tools/demoData500';
 import { clearAllUserData } from './features/dev-tools/clearAllUserData';
 import HealthDashboard from './features/reports/HealthDashboard';
+import MainDashboard from './features/dashboard/MainDashboard';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import Papa from 'papaparse';
@@ -7802,567 +7803,55 @@ function App() {
                 );
               })()}
 
-              {/* Dashboard Tab */}
               {activeTab === 'dashboard' && (
-                <div className="dashboard-container" style={{ maxWidth: '1400px', margin: '0 auto' }}>
-                  {(() => {
-                    const hour = new Date().getHours();
-                    const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-                    const formattedName = getUserDisplayName();
-                    const today = new Date();
-                    const dateString = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-                    
-                    // Calculate key metrics
-                    const overduePayments = tenants.filter(t => t.status === 'current' && t.paymentStatus === 'late');
-                    const urgentMaintenance = maintenanceRequests.filter(r => r.status === 'open' && (r.priority === 'high' || r.priority === 'urgent'));
-                    const leasesExpiring14Days = tenants.filter(t => {
-                      if (!t.leaseEnd || t.status !== 'current') return false;
-                      const endDate = new Date(t.leaseEnd);
-                      const daysUntil = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
-                      return daysUntil <= 14 && daysUntil >= 0;
-                    });
-                    const unpaidLateFees = lateFees.filter(f => f.status === 'unpaid');
-                    
-                    const totalAttentionItems = overduePayments.length + urgentMaintenance.length + leasesExpiring14Days.length + unpaidLateFees.length;
-                    
-                    // Calculate collection stats
-                    const expectedRevenue = tenants.filter(t => t.status === 'current').reduce((sum, t) => sum + (t.rentAmount || 0), 0);
-                    const collectedRevenue = tenants.filter(t => t.status === 'current' && t.paymentStatus === 'paid').reduce((sum, t) => sum + (t.rentAmount || 0), 0);
-                    const collectionRate = expectedRevenue > 0 ? Math.round((collectedRevenue / expectedRevenue) * 100) : 0;
-                    
-                    // Occupancy
-                    const totalUnits = properties.reduce((sum, p) => sum + (p.units || 1), 0);
-                    const occupiedUnits = properties.reduce((sum, p) => sum + (p.occupied || 0), 0);
-                    const occupancyRate = totalUnits > 0 ? Math.round((occupiedUnits / totalUnits) * 100) : 0;
-                    
-                    // Open maintenance
-                    const openMaintenance = maintenanceRequests.filter(r => r.status === 'open' || r.status === 'in_progress').length;
-
-                    // Brand colors - monochrome with single accent
-                    const colors = {
-                      text: '#0f172a',
-                      textSecondary: '#64748b',
-                      textMuted: '#94a3b8',
-                      border: '#e2e8f0',
-                      borderLight: '#f1f5f9',
-                      bg: '#ffffff',
-                      bgSubtle: '#f8fafc',
-                      accent: '#3b82f6',
-                      accentHover: '#2563eb',
-                      success: '#10b981',
-                      warning: '#f59e0b',
-                      danger: '#ef4444'
-                    };
-                    
-                    return (
-                      <>
-                        {/* Clean Header */}
-                        <div style={{ marginBottom: '32px' }}>
-                          <p style={{ margin: '0 0 4px 0', fontSize: '13px', color: colors.textMuted, fontWeight: '500', letterSpacing: '0.5px' }}>
-                            {dateString.toUpperCase()}
-                          </p>
-                          <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: '600', color: colors.text, letterSpacing: '-0.5px' }}>
-                            {greeting}, {formattedName}
-                          </h1>
-                          {totalAttentionItems > 0 ? (
-                            <p style={{ margin: 0, fontSize: '15px', color: colors.textSecondary }}>
-                              {totalAttentionItems} item{totalAttentionItems !== 1 ? 's' : ''} need your attention
-                            </p>
-                          ) : (
-                            <p style={{ margin: 0, fontSize: '15px', color: colors.success }}>
-                              All caught up. Your portfolio is running smoothly.
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Action Items - Subtle left border style */}
-                        {totalAttentionItems > 0 && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '32px' }}>
-                            {overduePayments.length > 0 && (
-                              <div 
-                                onClick={() => { setActiveTab('tenants'); setFilterStatus('late'); }}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                  padding: '14px 16px',
-                                  background: colors.bg,
-                                  borderRadius: '8px',
-                                  border: `1px solid ${colors.border}`,
-                                  borderLeft: `3px solid ${colors.danger}`,
-                                  cursor: 'pointer',
-                                  transition: 'all 0.15s ease'
-                                }}
-                                onMouseEnter={(e) => { e.currentTarget.style.background = colors.bgSubtle; e.currentTarget.style.borderColor = colors.textMuted; }}
-                                onMouseLeave={(e) => { e.currentTarget.style.background = colors.bg; e.currentTarget.style.borderColor = colors.border; }}
-                              >
-                                <div>
-                                  <p style={{ margin: 0, fontSize: '14px', fontWeight: '500', color: colors.text }}>
-                                    {overduePayments.length} overdue payment{overduePayments.length !== 1 ? 's' : ''}
-                                  </p>
-                                  <p style={{ margin: '2px 0 0', fontSize: '13px', color: colors.textSecondary }}>
-                                    ${overduePayments.reduce((sum, t) => sum + (t.rentAmount || 0), 0).toLocaleString()} outstanding
-                                  </p>
-                                </div>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                              </div>
-                            )}
-
-                            {urgentMaintenance.length > 0 && (
-                              <div 
-                                onClick={() => setActiveTab('maintenance')}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                  padding: '14px 16px',
-                                  background: colors.bg,
-                                  borderRadius: '8px',
-                                  border: `1px solid ${colors.border}`,
-                                  borderLeft: `3px solid ${colors.warning}`,
-                                  cursor: 'pointer',
-                                  transition: 'all 0.15s ease'
-                                }}
-                                onMouseEnter={(e) => { e.currentTarget.style.background = colors.bgSubtle; e.currentTarget.style.borderColor = colors.textMuted; }}
-                                onMouseLeave={(e) => { e.currentTarget.style.background = colors.bg; e.currentTarget.style.borderColor = colors.border; }}
-                              >
-                                <div>
-                                  <p style={{ margin: 0, fontSize: '14px', fontWeight: '500', color: colors.text }}>
-                                    {urgentMaintenance.length} urgent request{urgentMaintenance.length !== 1 ? 's' : ''}
-                                  </p>
-                                  <p style={{ margin: '2px 0 0', fontSize: '13px', color: colors.textSecondary }}>
-                                    {urgentMaintenance[0]?.issue?.substring(0, 40)}{urgentMaintenance[0]?.issue?.length > 40 ? '...' : ''}
-                                  </p>
-                                </div>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                              </div>
-                            )}
-
-                            {leasesExpiring14Days.length > 0 && (
-                              <div 
-                                onClick={() => { setActiveTab('tenants'); setFilterStatus('expiring'); }}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                  padding: '14px 16px',
-                                  background: colors.bg,
-                                  borderRadius: '8px',
-                                  border: `1px solid ${colors.border}`,
-                                  borderLeft: `3px solid ${colors.accent}`,
-                                  cursor: 'pointer',
-                                  transition: 'all 0.15s ease'
-                                }}
-                                onMouseEnter={(e) => { e.currentTarget.style.background = colors.bgSubtle; e.currentTarget.style.borderColor = colors.textMuted; }}
-                                onMouseLeave={(e) => { e.currentTarget.style.background = colors.bg; e.currentTarget.style.borderColor = colors.border; }}
-                              >
-                                <div>
-                                  <p style={{ margin: 0, fontSize: '14px', fontWeight: '500', color: colors.text }}>
-                                    {leasesExpiring14Days.length} lease{leasesExpiring14Days.length !== 1 ? 's' : ''} expiring soon
-                                  </p>
-                                  <p style={{ margin: '2px 0 0', fontSize: '13px', color: colors.textSecondary }}>
-                                    Within 14 days
-                                  </p>
-                                </div>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                              </div>
-                            )}
-
-                            {unpaidLateFees.length > 0 && (
-                              <div 
-                                onClick={() => setActiveTab('late-fees')}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                  padding: '14px 16px',
-                                  background: colors.bg,
-                                  borderRadius: '8px',
-                                  border: `1px solid ${colors.border}`,
-                                  borderLeft: `3px solid ${colors.textMuted}`,
-                                  cursor: 'pointer',
-                                  transition: 'all 0.15s ease'
-                                }}
-                                onMouseEnter={(e) => { e.currentTarget.style.background = colors.bgSubtle; e.currentTarget.style.borderColor = colors.textMuted; }}
-                                onMouseLeave={(e) => { e.currentTarget.style.background = colors.bg; e.currentTarget.style.borderColor = colors.border; }}
-                              >
-                                <div>
-                                  <p style={{ margin: 0, fontSize: '14px', fontWeight: '500', color: colors.text }}>
-                                    {unpaidLateFees.length} late fee{unpaidLateFees.length !== 1 ? 's' : ''} to collect
-                                  </p>
-                                  <p style={{ margin: '2px 0 0', fontSize: '13px', color: colors.textSecondary }}>
-                                    ${unpaidLateFees.reduce((sum, f) => sum + parseFloat(f.fee_amount), 0).toFixed(0)} pending
-                                  </p>
-                                </div>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={colors.textMuted} strokeWidth="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Stats Grid - Clean cards with thin progress bars */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '32px' }}>
-                          {/* Collection Rate */}
-                          <div style={{
-                            background: colors.bg,
-                            borderRadius: '12px',
-                            padding: '20px',
-                            border: `1px solid ${colors.border}`
-                          }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                              <p style={{ margin: 0, fontSize: '13px', color: colors.textSecondary, fontWeight: '500' }}>Collection Rate</p>
-                            </div>
-                            <p style={{ margin: '0 0 4px 0', fontSize: '32px', fontWeight: '600', color: colors.text, letterSpacing: '-1px' }}>{collectionRate}%</p>
-                            <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: colors.textMuted }}>
-                              ${collectedRevenue.toLocaleString()} of ${expectedRevenue.toLocaleString()}
-                            </p>
-                            <div style={{ height: '3px', background: colors.borderLight, borderRadius: '2px', overflow: 'hidden' }}>
-                              <div style={{ 
-                                width: `${collectionRate}%`, 
-                                height: '100%', 
-                                background: collectionRate >= 90 ? colors.success : collectionRate >= 70 ? colors.warning : colors.danger,
-                                borderRadius: '2px',
-                                transition: 'width 0.5s ease'
-                              }}></div>
-                            </div>
-                          </div>
-
-                          {/* Occupancy */}
-                          <div style={{
-                            background: colors.bg,
-                            borderRadius: '12px',
-                            padding: '20px',
-                            border: `1px solid ${colors.border}`
-                          }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                              <p style={{ margin: 0, fontSize: '13px', color: colors.textSecondary, fontWeight: '500' }}>Occupancy</p>
-                            </div>
-                            <p style={{ margin: '0 0 4px 0', fontSize: '32px', fontWeight: '600', color: colors.text, letterSpacing: '-1px' }}>{occupancyRate}%</p>
-                            <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: colors.textMuted }}>
-                              {occupiedUnits} of {totalUnits} units
-                            </p>
-                            <div style={{ height: '3px', background: colors.borderLight, borderRadius: '2px', overflow: 'hidden' }}>
-                              <div style={{ width: `${occupancyRate}%`, height: '100%', background: colors.accent, borderRadius: '2px' }}></div>
-                            </div>
-                          </div>
-
-                          {/* Open Tickets */}
-                          <div 
-                            onClick={() => setActiveTab('maintenance')}
-                            style={{
-                              background: colors.bg,
-                              borderRadius: '12px',
-                              padding: '20px',
-                              border: `1px solid ${colors.border}`,
-                              cursor: 'pointer',
-                              transition: 'border-color 0.15s ease'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.borderColor = colors.textMuted}
-                            onMouseLeave={(e) => e.currentTarget.style.borderColor = colors.border}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                              <p style={{ margin: 0, fontSize: '13px', color: colors.textSecondary, fontWeight: '500' }}>Open Tickets</p>
-                            </div>
-                            <p style={{ margin: '0 0 4px 0', fontSize: '32px', fontWeight: '600', color: colors.text, letterSpacing: '-1px' }}>{openMaintenance}</p>
-                            <p style={{ margin: 0, fontSize: '12px', color: urgentMaintenance.length > 0 ? colors.warning : colors.textMuted }}>
-                              {urgentMaintenance.length} high priority
-                            </p>
-                          </div>
-
-                          {/* Monthly Revenue */}
-                          <div 
-                            onClick={() => setActiveTab('reports')}
-                            style={{
-                              background: colors.bg,
-                              borderRadius: '12px',
-                              padding: '20px',
-                              border: `1px solid ${colors.border}`,
-                              cursor: 'pointer',
-                              transition: 'border-color 0.15s ease'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.borderColor = colors.textMuted}
-                            onMouseLeave={(e) => e.currentTarget.style.borderColor = colors.border}
-                          >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                              <p style={{ margin: 0, fontSize: '13px', color: colors.textSecondary, fontWeight: '500' }}>Expected Revenue</p>
-                            </div>
-                            <p style={{ margin: '0 0 4px 0', fontSize: '32px', fontWeight: '600', color: colors.text, letterSpacing: '-1px' }}>${expectedRevenue.toLocaleString()}</p>
-                            <p style={{ margin: 0, fontSize: '12px', color: colors.success }}>
-                              This month
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Two Column Layout */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '32px' }}>
-                          
-                          {/* Overdue Payments */}
-                          <div style={{
-                            background: colors.bg,
-                            borderRadius: '12px',
-                            border: `1px solid ${colors.border}`,
-                            overflow: 'hidden'
-                          }}>
-                            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${colors.borderLight}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <div>
-                                <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: colors.text }}>Overdue Payments</h3>
-                                <p style={{ margin: '2px 0 0', fontSize: '12px', color: colors.textMuted }}>{overduePayments.length} tenant{overduePayments.length !== 1 ? 's' : ''}</p>
-                              </div>
-                              {overduePayments.length > 0 && (
-                                <button 
-                                  onClick={() => { setActiveTab('tenants'); setFilterStatus('late'); }}
-                                  style={{ background: 'none', border: 'none', color: colors.accent, fontSize: '12px', fontWeight: '500', cursor: 'pointer' }}
-                                >
-                                  View all
-                                </button>
-                              )}
-                            </div>
-                            <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
-                              {overduePayments.length === 0 ? (
-                                <div style={{ padding: '32px 20px', textAlign: 'center' }}>
-                                  <p style={{ margin: 0, fontSize: '13px', color: colors.textMuted }}>No overdue payments</p>
-                                </div>
-                              ) : (
-                                overduePayments.slice(0, 5).map((tenant, idx) => (
-                                  <div 
-                                    key={tenant.id}
-                                    onClick={async () => {
-                                      setSelectedTenant(tenant);
-                                      const files = await loadFilesForRecord('tenant', tenant.id);
-                                      setTenantFiles(files);
-                                    }}
-                                    style={{
-                                      padding: '12px 20px',
-                                      borderBottom: idx < Math.min(overduePayments.length, 5) - 1 ? `1px solid ${colors.borderLight}` : 'none',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      gap: '12px',
-                                      cursor: 'pointer',
-                                      transition: 'background 0.1s ease'
-                                    }}
-                                    onMouseEnter={(e) => e.currentTarget.style.background = colors.bgSubtle}
-                                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                                  >
-                                    <div style={{
-                                      width: '36px',
-                                      height: '36px',
-                                      borderRadius: '8px',
-                                      background: colors.bgSubtle,
-                                      color: colors.textSecondary,
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      fontSize: '12px',
-                                      fontWeight: '600'
-                                    }}>
-                                      {getInitials(tenant.name)}
-                                    </div>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                      <p style={{ margin: 0, fontWeight: '500', color: colors.text, fontSize: '13px' }}>{tenant.name}</p>
-                                      <p style={{ margin: '1px 0 0', fontSize: '12px', color: colors.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                        {tenant.property?.split(',')[0]}
-                                      </p>
-                                    </div>
-                                    <div style={{ textAlign: 'right' }}>
-                                      <p style={{ margin: 0, fontWeight: '600', color: colors.text, fontSize: '13px' }}>${tenant.rentAmount?.toLocaleString()}</p>
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          sendSMSReminder(tenant);
-                                        }}
-                                        style={{
-                                          background: 'none',
-                                          border: 'none',
-                                          color: colors.accent,
-                                          fontSize: '11px',
-                                          cursor: 'pointer',
-                                          padding: 0,
-                                          fontWeight: '500'
-                                        }}
-                                      >
-                                        Remind
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Maintenance Requests */}
-                          <div style={{
-                            background: colors.bg,
-                            borderRadius: '12px',
-                            border: `1px solid ${colors.border}`,
-                            overflow: 'hidden'
-                          }}>
-                            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${colors.borderLight}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <div>
-                                <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: colors.text }}>Maintenance</h3>
-                                <p style={{ margin: '2px 0 0', fontSize: '12px', color: colors.textMuted }}>{openMaintenance} open</p>
-                              </div>
-                              {openMaintenance > 0 && (
-                                <button 
-                                  onClick={() => setActiveTab('maintenance')}
-                                  style={{ background: 'none', border: 'none', color: colors.accent, fontSize: '12px', fontWeight: '500', cursor: 'pointer' }}
-                                >
-                                  View all
-                                </button>
-                              )}
-                            </div>
-                            <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
-                              {maintenanceRequests.filter(r => r.status === 'open' || r.status === 'in_progress').length === 0 ? (
-                                <div style={{ padding: '32px 20px', textAlign: 'center' }}>
-                                  <p style={{ margin: 0, fontSize: '13px', color: colors.textMuted }}>No open requests</p>
-                                </div>
-                              ) : (
-                                maintenanceRequests
-                                  .filter(r => r.status === 'open' || r.status === 'in_progress')
-                                  .slice(0, 5)
-                                  .map((request, idx, arr) => (
-                                    <div 
-                                      key={request.id}
-                                      onClick={() => setSelectedMaintenanceRequest(request)}
-                                      style={{
-                                        padding: '12px 20px',
-                                        borderBottom: idx < arr.length - 1 ? `1px solid ${colors.borderLight}` : 'none',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '12px',
-                                        cursor: 'pointer',
-                                        transition: 'background 0.1s ease'
-                                      }}
-                                      onMouseEnter={(e) => e.currentTarget.style.background = colors.bgSubtle}
-                                      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                                    >
-                                      <div style={{
-                                        width: '8px',
-                                        height: '8px',
-                                        borderRadius: '50%',
-                                        background: request.priority === 'high' || request.priority === 'urgent' ? colors.danger : request.priority === 'medium' ? colors.warning : colors.textMuted,
-                                        flexShrink: 0
-                                      }}></div>
-                                      <div style={{ flex: 1, minWidth: 0 }}>
-                                        <p style={{ margin: 0, fontWeight: '500', color: colors.text, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                          {request.issue}
-                                        </p>
-                                        <p style={{ margin: '1px 0 0', fontSize: '12px', color: colors.textMuted }}>
-                                          {request.property?.split(',')[0]}
-                                        </p>
-                                      </div>
-                                      <span style={{
-                                        fontSize: '11px',
-                                        padding: '3px 8px',
-                                        borderRadius: '4px',
-                                        background: request.status === 'in_progress' ? colors.bgSubtle : 'transparent',
-                                        border: `1px solid ${colors.border}`,
-                                        color: colors.textSecondary,
-                                        fontWeight: '500'
-                                      }}>
-                                        {request.status === 'in_progress' ? 'In Progress' : 'Open'}
-                                      </span>
-                                    </div>
-                                  ))
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Quick Actions - Minimal style */}
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                          <button
-                            onClick={() => setShowAddTenantModal(true)}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '8px 14px',
-                              background: 'transparent',
-                              border: `1px solid ${colors.border}`,
-                              borderRadius: '6px',
-                              fontSize: '13px',
-                              fontWeight: '500',
-                              color: colors.textSecondary,
-                              cursor: 'pointer',
-                              transition: 'all 0.1s ease'
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.borderColor = colors.textMuted; e.currentTarget.style.color = colors.text; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.color = colors.textSecondary; }}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
-                            Add Tenant
-                          </button>
-                          <button
-                            onClick={() => setShowAddPropertyModal(true)}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '8px 14px',
-                              background: 'transparent',
-                              border: `1px solid ${colors.border}`,
-                              borderRadius: '6px',
-                              fontSize: '13px',
-                              fontWeight: '500',
-                              color: colors.textSecondary,
-                              cursor: 'pointer',
-                              transition: 'all 0.1s ease'
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.borderColor = colors.textMuted; e.currentTarget.style.color = colors.text; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.color = colors.textSecondary; }}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
-                            Add Property
-                          </button>
-                          <button
-                            onClick={() => setShowAddMaintenanceModal(true)}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '8px 14px',
-                              background: 'transparent',
-                              border: `1px solid ${colors.border}`,
-                              borderRadius: '6px',
-                              fontSize: '13px',
-                              fontWeight: '500',
-                              color: colors.textSecondary,
-                              cursor: 'pointer',
-                              transition: 'all 0.1s ease'
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.borderColor = colors.textMuted; e.currentTarget.style.color = colors.text; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = colors.border; e.currentTarget.style.color = colors.textSecondary; }}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
-                            New Request
-                          </button>
-                          <button
-                            onClick={() => setShowOnboardingWizard(true)}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '8px 14px',
-                              background: colors.accent,
-                              border: 'none',
-                              borderRadius: '6px',
-                              fontSize: '13px',
-                              fontWeight: '500',
-                              color: 'white',
-                              cursor: 'pointer',
-                              transition: 'background 0.1s ease'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.background = colors.accentHover}
-                            onMouseLeave={(e) => e.currentTarget.style.background = colors.accent}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-                            Move-In Wizard
-                          </button>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
+                <MainDashboard
+                  displayName={getUserDisplayName()}
+                  onNavigate={async (target) => {
+                    if (!target || !target.tab) return;
+                    // Routing precedence: if a recordId is provided, open
+                    // that record's detail panel. Otherwise apply any
+                    // requested filter. Either way, switch to the target tab.
+                    if (target.tab === 'tenants') {
+                      if (target.recordId != null) {
+                        const tenant = tenants.find(t => t.id === target.recordId);
+                        if (tenant) {
+                          setSelectedTenant(tenant);
+                          try {
+                            const files = await loadFilesForRecord('tenant', tenant.id);
+                            setTenantFiles(files);
+                          } catch (err) {
+                            console.error('[onNavigate] loadFilesForRecord failed:', err);
+                          }
+                        }
+                      } else if (target.filter === 'late') {
+                        setTenantFilter('late');
+                        setFilterStatus('late');
+                      } else if (target.filter === 'prospect') {
+                        setTenantFilter('prospects');
+                        setFilterStatus('prospect');
+                      } else if (target.filter === 'expiring') {
+                        setTenantFilter('expiring');
+                        setFilterStatus('expiring');
+                      } else {
+                        setTenantFilter('all');
+                        setFilterStatus('all');
+                      }
+                      setActiveTab('tenants');
+                    } else if (target.tab === 'maintenance') {
+                      if (target.recordId != null) {
+                        const request = maintenanceRequests.find(r => r.id === target.recordId);
+                        if (request) setSelectedMaintenanceRequest(request);
+                      } else if (target.filter === 'open') {
+                        setMaintenanceFilterTab('open');
+                      }
+                      setActiveTab('maintenance');
+                    } else if (target.tab === 'properties') {
+                      setActiveTab('properties');
+                    } else if (target.tab === 'reports') {
+                      setActiveTab('reports');
+                    }
+                  }}
+                />
               )}
 
               {/* Late Payments Banner */}
