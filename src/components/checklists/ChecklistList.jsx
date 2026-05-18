@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const ChecklistList = ({ checklists, onView, onEdit, onDelete, onCreate, properties = [] }) => {
+const ChecklistList = ({ checklists, onView, onEdit, onDelete, onCreate, onStartWalkthrough, properties = [] }) => {
   const [filter, setFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [propertyFilter, setPropertyFilter] = useState('all');
@@ -122,8 +122,8 @@ const ChecklistList = ({ checklists, onView, onEdit, onDelete, onCreate, propert
           {[
             { value: 'all', label: 'All Status' },
             { value: 'draft', label: 'Draft' },
-            { value: 'in_progress', label: 'In Progress' },
-            { value: 'completed', label: 'Completed' }
+            { value: 'completed', label: 'Completed' },
+            { value: 'signed', label: 'Signed' }
           ].map(option => (
             <button
               key={option.value}
@@ -193,7 +193,19 @@ const ChecklistList = ({ checklists, onView, onEdit, onDelete, onCreate, propert
                       })}
                     </p>
                   </div>
-                  <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {onStartWalkthrough && checklist.status !== 'signed' && (
+                      <button
+                        className="btn-primary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onStartWalkthrough(checklist.id);
+                        }}
+                        style={{ padding: '6px 12px', fontSize: '13px', background: '#1a73e8' }}
+                      >
+                        Start walkthrough
+                      </button>
+                    )}
                     <button
                       className="btn-secondary"
                       onClick={(e) => {

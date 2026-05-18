@@ -1,7 +1,16 @@
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 
-export const generateChecklistPDF = async (checklist, properties = [], tenants = []) => {
+// Optional `opts`:
+//   embedPhotos: boolean - swap the URL list for actual embedded JPEGs/PNGs
+//                          (max 4 per item, "and N more" if exceeded)
+//   returnBlob:  boolean - return { blob, filename } instead of triggering
+//                          a doc.save() download
+//   maxPhotosPerItem: number - cap on photos embedded per item, default 4
+export const generateChecklistPDF = async (checklist, properties = [], tenants = [], opts = {}) => {
+  const embedPhotos = opts.embedPhotos === true;
+  const returnBlob = opts.returnBlob === true;
+  const maxPhotosPerItem = typeof opts.maxPhotosPerItem === 'number' ? opts.maxPhotosPerItem : 4;
   const doc = new jsPDF();
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -219,20 +228,72 @@ export const generateChecklistPDF = async (checklist, properties = [], tenants =
 
     for (const item of itemsWithPhotos) {
       const photos = item.checklist_photos || [];
-      checkPageBreak(50);
-      
+      const shown = photos.slice(0, maxPhotosPerItem);
+      const overflow = Math.max(0, photos.length - shown.length);
+      checkPageBreak(60);
+
       doc.setFont('helvetica', 'bold');
       doc.text(`${item.item_name} (${item.room})`, margin, yPosition);
       yPosition += 6;
 
       doc.setFont('helvetica', 'normal');
-      
-      // Note: jsPDF doesn't directly support images from URLs due to CORS
-      // We'll list the photo URLs instead
-      photos.forEach((photo, index) => {
-        doc.text(`Photo ${index + 1}: ${photo.photo_url}`, margin + 5, yPosition);
-        yPosition += 5;
-      });
+
+      if (embedPhotos && shown.length > 0) {
+        const thumbWidth = 40;
+        const thumbHeight = 30;
+        const cols = 4;
+        for (let i = 0; i < shown.length; i++) {
+          const photo = shown[i];
+          const col = i % cols;
+          if (col === 0) {
+            checkPageBreak(thumbHeight + 8);
+          }
+          const x = margin + col * (thumbWidth + 5);
+          try {
+            // Each img.onload either embeds the photo or falls back to a
+            // text URL so a missing image never breaks the whole PDF.
+            await new Promise((resolve) => {
+              const img = new Image();
+              img.crossOrigin = 'anonymous';
+              img.onload = () => {
+                try {
+                  doc.addImage(img, 'JPEG', x, yPosition, thumbWidth, thumbHeight);
+                } catch {
+                  doc.setFontSize(8);
+                  doc.text(`Photo ${i + 1} unavailable`, x, yPosition + thumbHeight / 2);
+                  doc.setFontSize(10);
+                }
+                resolve();
+              };
+              img.onerror = () => {
+                doc.setFontSize(8);
+                doc.text(`Photo ${i + 1} unavailable`, x, yPosition + thumbHeight / 2);
+                doc.setFontSize(10);
+                resolve();
+              };
+              img.src = photo.photo_url;
+            });
+          } catch {
+            // already handled above; continue
+          }
+          if (col === cols - 1 || i === shown.length - 1) {
+            yPosition += thumbHeight + 6;
+          }
+        }
+        if (overflow > 0) {
+          doc.setFontSize(9);
+          doc.setFont('helvetica', 'italic');
+          doc.text(`and ${overflow} more`, margin, yPosition);
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'normal');
+          yPosition += 6;
+        }
+      } else {
+        photos.forEach((photo, index) => {
+          doc.text(`Photo ${index + 1}: ${photo.photo_url}`, margin + 5, yPosition);
+          yPosition += 5;
+        });
+      }
 
       yPosition += 3;
     }
@@ -346,6 +407,12 @@ export const generateChecklistPDF = async (checklist, properties = [], tenants =
   const dateText = checklist.inspection_date ? `_${checklist.inspection_date}` : '';
   const filename = `${inspectionType.replace(/\s+/g, '_')}_${propertyName}${unitText}${dateText}.pdf`;
 
+  if (returnBlob) {
+    const blob = doc.output('blob');
+    return { blob, filename };
+  }
+
   // Save PDF
   doc.save(filename);
+  return { filename };
 };
