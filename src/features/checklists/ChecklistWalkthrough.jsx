@@ -19,59 +19,14 @@ const STAGE_SUMMARY = 'summary';
 const STAGE_SIGNING = 'signing';
 
 export default function ChecklistWalkthrough({ checklistId, open, onClose }) {
+  // All hooks must run on every render in the same order. Declare them
+  // before any conditional return so the loading/error/closed branches
+  // don't change the hook count between renders. See the React error
+  // "Rendered more hooks than during the previous render".
   const w = useWalkthrough(checklistId);
   const [showAddRoom, setShowAddRoom] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
   const [stage, setStage] = useState(STAGE_INSPECTING);
-
-  if (!open) return null;
-
-  const overlayStyle = {
-    position: 'fixed',
-    inset: 0,
-    background: colors.surface.subtle,
-    zIndex: 100,
-    overflowY: 'auto',
-    fontFamily: typography.fontFamily,
-    WebkitOverflowScrolling: 'touch'
-  };
-
-  if (w.loading) {
-    return (
-      <div style={overlayStyle}>
-        <div style={centered()}>Loading inspection</div>
-      </div>
-    );
-  }
-  if (w.error) {
-    return (
-      <div style={overlayStyle}>
-        <div style={centered(colors.status.danger)}>
-          {w.error}
-          <div style={{ marginTop: spacing.lg }}>
-            <button type="button" onClick={onClose} style={closeButton()}>Close</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const handleAddRoomConfirm = async () => {
-    const name = newRoomName.trim();
-    if (!name) return;
-    await w.addRoom(name, ['Walls and paint', 'Flooring', 'Light fixtures']);
-    setNewRoomName('');
-    setShowAddRoom(false);
-  };
-
-  const goToSummary = async () => {
-    setStage(STAGE_SUMMARY);
-    // Walkthrough finished, awaiting signatures.
-    try { await w.setStatus('completed'); }
-    catch (err) { console.error('[ChecklistWalkthrough] status -> completed failed:', err); }
-  };
-  const goToSigning = () => setStage(STAGE_SIGNING);
-  const goBackToInspecting = () => setStage(STAGE_INSPECTING);
 
   // Lazy-load just the property and tenant rows needed for the PDF cover.
   // Kept local so the walkthrough hook doesn't have to know about them.
@@ -109,6 +64,56 @@ export default function ChecklistWalkthrough({ checklistId, open, onClose }) {
     }
     return result;
   }, [w.checklist, w.items, w.setPdfPath, fetchPdfContext]);
+
+  const overlayStyle = {
+    position: 'fixed',
+    inset: 0,
+    background: colors.surface.subtle,
+    zIndex: 100,
+    overflowY: 'auto',
+    fontFamily: typography.fontFamily,
+    WebkitOverflowScrolling: 'touch'
+  };
+
+  // Conditional returns are now safe: every hook above this point ran
+  // unconditionally.
+  if (!open) return null;
+  if (w.loading) {
+    return (
+      <div style={overlayStyle}>
+        <div style={centered()}>Loading inspection</div>
+      </div>
+    );
+  }
+  if (w.error) {
+    return (
+      <div style={overlayStyle}>
+        <div style={centered(colors.status.danger)}>
+          {w.error}
+          <div style={{ marginTop: spacing.lg }}>
+            <button type="button" onClick={onClose} style={closeButton()}>Close</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const handleAddRoomConfirm = async () => {
+    const name = newRoomName.trim();
+    if (!name) return;
+    await w.addRoom(name, ['Walls and paint', 'Flooring', 'Light fixtures']);
+    setNewRoomName('');
+    setShowAddRoom(false);
+  };
+
+  const goToSummary = async () => {
+    setStage(STAGE_SUMMARY);
+    // Walkthrough finished, awaiting signatures.
+    try { await w.setStatus('completed'); }
+    catch (err) { console.error('[ChecklistWalkthrough] status -> completed failed:', err); }
+  };
+  const goToSigning = () => setStage(STAGE_SIGNING);
+  const goBackToInspecting = () => setStage(STAGE_INSPECTING);
 
   const handleSignaturesComplete = async () => {
     // Both signatures captured and PDF uploaded.
