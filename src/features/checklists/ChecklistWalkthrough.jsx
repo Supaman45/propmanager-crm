@@ -94,9 +94,6 @@ export default function ChecklistWalkthrough({ checklistId, open, onClose }) {
               onChange={w.updateItem}
               onAddPhoto={w.addPhotoToItem}
               onRemovePhoto={w.removePhotoFromItem}
-              failedUploads={[]}
-              onRetryUploads={() => {}}
-              onClearFailures={() => {}}
             />
           ))}
         </WalkthroughRoom>

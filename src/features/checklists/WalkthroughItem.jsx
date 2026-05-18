@@ -5,20 +5,20 @@ import { PhotoCapture } from './PhotoCapture.jsx';
 
 // One inspection item: name, condition picker, photo capture, notes.
 // Owns local notes state with a debounced persist so typing doesn't blast
-// Supabase. Condition changes persist immediately.
+// Supabase. Condition changes persist immediately. Failed photo uploads
+// stay in a local retry queue so the PM can keep moving without losing
+// the captured image.
 
 export function WalkthroughItem({
   item,
   saving,
   onChange,
   onAddPhoto,
-  onRemovePhoto,
-  failedUploads,
-  onRetryUploads,
-  onClearFailures
+  onRemovePhoto
 }) {
   const [notesDraft, setNotesDraft] = useState(item.notes || '');
   const [uploading, setUploading] = useState(false);
+  const [failedQueue, setFailedQueue] = useState([]);
   const debounceRef = useRef(null);
 
   // Sync the local draft if the underlying item changes from elsewhere
@@ -44,10 +44,31 @@ export function WalkthroughItem({
       await onAddPhoto(item, file);
     } catch (err) {
       console.error('[WalkthroughItem] photo upload failed:', err);
+      setFailedQueue(prev => [...prev, file]);
     } finally {
       setUploading(false);
     }
   };
+
+  const handleRetryFailed = async () => {
+    if (failedQueue.length === 0) return;
+    setUploading(true);
+    const pending = [...failedQueue];
+    setFailedQueue([]);
+    const stillFailed = [];
+    for (const file of pending) {
+      try {
+        await onAddPhoto(item, file);
+      } catch (err) {
+        console.error('[WalkthroughItem] retry upload failed:', err);
+        stillFailed.push(file);
+      }
+    }
+    if (stillFailed.length > 0) setFailedQueue(stillFailed);
+    setUploading(false);
+  };
+
+  const handleClearFailed = () => setFailedQueue([]);
 
   return (
     <div style={{
@@ -80,9 +101,9 @@ export function WalkthroughItem({
         uploading={uploading}
         onPick={handlePickPhoto}
         onRemove={(photo) => onRemovePhoto(item, photo)}
-        failed={failedUploads}
-        onRetry={onRetryUploads}
-        onClearFailure={onClearFailures}
+        failed={failedQueue}
+        onRetry={handleRetryFailed}
+        onClearFailure={handleClearFailed}
       />
 
       <textarea
