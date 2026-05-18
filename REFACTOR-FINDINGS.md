@@ -51,6 +51,13 @@ Statuses: `OPEN`, `RESOLVED`, `WONTFIX`, `NOTED`.
 - Details: `add-owner-portal-migration.sql:23` declares `owner_statements.property_id UUID REFERENCES properties(id)`, but `properties.id` is `BIGINT` (`database-schema.sql:37`). The foreign key cannot resolve, so any insert into `owner_statements` with a real `property_id` will fail. The table is effectively unwritable until the column type is fixed. Discovered while building the 500-door demo generator — `owner_statements` was skipped entirely as a result.
 - Proposed fix: Migration to change `owner_statements.property_id` from `UUID` to `BIGINT` and re-add the foreign key. Coordinate with whatever UI is supposed to write to this table (owner statement generation flow) before deploying.
 
+## [RESOLVED] inspection_checklists.status dropdown writes invalid value
+
+- Date: 2026-05-17
+- Phase: Checklists v1 walkthrough work
+- Details: `src/components/checklists/ChecklistForm.jsx` exposed a status dropdown with values `draft`, `in_progress`, `completed`. The actual `inspection_checklists.status` check constraint in production is `status::text = ANY (ARRAY['draft', 'completed', 'signed'])` so any save with `in_progress` selected fails with `inspection_checklists_status_check`. `src/components/checklists/ChecklistList.jsx` had the same `in_progress` value as a filter option, which never matched any row. Pre-existing bug on `main` before tonight's walkthrough work; the walkthrough code only ever wrote `completed`, but did so at the wrong point in the state machine.
+- Resolution: Replaced `in_progress` with `signed` in both the form dropdown and the list filter. Walkthrough state machine now writes `draft` during inspection (default), `completed` when the PM finishes the room walk and arrives at the summary screen, and `signed` after both signatures plus PDF upload. Added a strict allowlist guard in `useWalkthrough.setStatus` so future code can't silently write invalid values.
+
 ## [OPEN] properties.owner_id type mismatch with owners.id
 
 - Date: 2026-05-16

@@ -122,8 +122,8 @@ const ChecklistList = ({ checklists, onView, onEdit, onDelete, onCreate, onStart
           {[
             { value: 'all', label: 'All Status' },
             { value: 'draft', label: 'Draft' },
-            { value: 'in_progress', label: 'In Progress' },
-            { value: 'completed', label: 'Completed' }
+            { value: 'completed', label: 'Completed' },
+            { value: 'signed', label: 'Signed' }
           ].map(option => (
             <button
               key={option.value}
@@ -194,7 +194,7 @@ const ChecklistList = ({ checklists, onView, onEdit, onDelete, onCreate, onStart
                     </p>
                   </div>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    {onStartWalkthrough && checklist.status !== 'completed' && (
+                    {onStartWalkthrough && checklist.status !== 'signed' && (
                       <button
                         className="btn-primary"
                         onClick={(e) => {

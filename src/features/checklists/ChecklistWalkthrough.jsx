@@ -64,7 +64,12 @@ export default function ChecklistWalkthrough({ checklistId, open, onClose }) {
     setShowAddRoom(false);
   };
 
-  const goToSummary = () => setStage(STAGE_SUMMARY);
+  const goToSummary = async () => {
+    setStage(STAGE_SUMMARY);
+    // Walkthrough finished, awaiting signatures.
+    try { await w.setStatus('completed'); }
+    catch (err) { console.error('[ChecklistWalkthrough] status -> completed failed:', err); }
+  };
   const goToSigning = () => setStage(STAGE_SIGNING);
   const goBackToInspecting = () => setStage(STAGE_INSPECTING);
 
@@ -106,10 +111,11 @@ export default function ChecklistWalkthrough({ checklistId, open, onClose }) {
   }, [w.checklist, w.items, w.setPdfPath, fetchPdfContext]);
 
   const handleSignaturesComplete = async () => {
+    // Both signatures captured and PDF uploaded.
     try {
-      await w.markComplete();
+      await w.setStatus('signed');
     } catch (err) {
-      console.error('[ChecklistWalkthrough] markComplete failed:', err);
+      console.error('[ChecklistWalkthrough] status -> signed failed:', err);
     }
     onClose && onClose({ complete: true, checklistId });
   };

@@ -179,8 +179,14 @@ export function useWalkthrough(checklistId) {
     return url;
   }, [checklistId, uploadSignature, updateChecklist]);
 
-  const markComplete = useCallback(async (extra = {}) => {
-    const patch = { status: 'completed', ...extra };
+  // inspection_checklists.status check constraint accepts only these three
+  // values. Keep the consumer in charge of which transition fires when.
+  const setStatus = useCallback(async (newStatus, extra = {}) => {
+    const allowed = ['draft', 'completed', 'signed'];
+    if (!allowed.includes(newStatus)) {
+      throw new Error(`Invalid checklist status "${newStatus}"; expected one of ${allowed.join(', ')}`);
+    }
+    const patch = { status: newStatus, ...extra };
     await updateChecklist(checklistId, patch);
     setChecklist(prev => prev ? { ...prev, ...patch } : prev);
   }, [checklistId, updateChecklist]);
@@ -232,7 +238,7 @@ export function useWalkthrough(checklistId) {
     removePhotoFromItem,
     addRoom,
     saveSignature,
-    markComplete,
+    setStatus,
     setPdfPath,
     reload
   };

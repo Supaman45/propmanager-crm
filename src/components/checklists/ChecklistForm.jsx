@@ -384,8 +384,8 @@ const ChecklistForm = ({ checklistId, onSave, onCancel, properties = [], tenants
               onChange={(e) => setFormData({ ...formData, status: e.target.value })}
             >
               <option value="draft">Draft</option>
-              <option value="in_progress">In Progress</option>
               <option value="completed">Completed</option>
+              <option value="signed">Signed</option>
             </select>
           </div>
           <div className="form-group full-width">
