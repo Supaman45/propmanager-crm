@@ -2,6 +2,7 @@ import { colors, spacing, radius, shadow, typography } from '../../shared/styles
 import { useMainDashboard } from './useMainDashboard.js';
 import { timeOfDayGreeting, formatHeaderDate } from './mainDashboardMetrics.js';
 import { KPICard } from '../reports/KPICard.jsx';
+import { DueDatesPanel } from './DueDatesPanel.jsx';
 
 // Operator command center. Greeting + the single most important thing to
 // do today at the top, then KPI strip, Due Dates panel, YoY charts,
@@ -128,9 +129,17 @@ export default function MainDashboard({ displayName, onNavigate }) {
         </section>
       ) : null}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: spacing.lg }}>
-        <SectionPlaceholder title="Due in the next 14 days" note="Lease expirations, late rent, stuck maintenance, vendor follow-ups." />
-        <SectionPlaceholder title="Year-over-year" note="Revenue and occupancy YoY bar charts." span={2} />
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+        gap: spacing.lg
+      }}>
+        <DueDatesPanel
+          dueDates={data.dueDates}
+          onNavigate={onNavigate}
+          onSeeAll={() => onNavigate && onNavigate({ tab: 'tenants' })}
+        />
+        <SectionPlaceholder title="Year-over-year" note="Revenue and occupancy YoY bar charts." />
       </div>
 
       <SectionPlaceholder title="Action items" note="Top 3-5 things to act on, sorted by impact." />

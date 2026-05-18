@@ -51,6 +51,29 @@ Statuses: `OPEN`, `RESOLVED`, `WONTFIX`, `NOTED`.
 - Details: `add-owner-portal-migration.sql:23` declares `owner_statements.property_id UUID REFERENCES properties(id)`, but `properties.id` is `BIGINT` (`database-schema.sql:37`). The foreign key cannot resolve, so any insert into `owner_statements` with a real `property_id` will fail. The table is effectively unwritable until the column type is fixed. Discovered while building the 500-door demo generator — `owner_statements` was skipped entirely as a result.
 - Proposed fix: Migration to change `owner_statements.property_id` from `UUID` to `BIGINT` and re-add the foreign key. Coordinate with whatever UI is supposed to write to this table (owner statement generation flow) before deploying.
 
+## [OPEN] No back affordance from detail panels
+
+- Date: 2026-05-17
+- Phase: Main Dashboard command center work
+- Details: Detail panels for tenant, maintenance, property, and owner have no "back" link or breadcrumb. A user who clicks into a tenant from the Main Dashboard's Due Dates panel and then closes the detail panel lands on the Tenants tab with no context of where they came from. This is a known AppFolio pain point worth solving well.
+- Three approaches worth considering: (a) contextual "Back to Dashboard" link in panel header, (b) navigation history stack in app state, (c) URL routing per detail page with browser back-button support. Option (c) is the strongest UX but is also the largest change since the rest of the app is tab-state-routed.
+- Defer to a dedicated mini-prompt between the current Prompt 2 (Main Dashboard) and Prompt 3 (visual design pass), or to Phase 9 refactor.
+
+## [OPEN] Tenant detail panel redesign
+
+- Date: 2026-05-17
+- Phase: Main Dashboard command center work
+- Details: The current tenant detail panel is functional but visually flat. Wanted for Prompt 3 (visual design language pass): activity timeline, lease progress bar, status badges, richer quick actions, better visual hierarchy.
+- In scope for Prompt 3.
+
+## [OPEN] Health Dashboard onNavigate uses legacy filter variable only
+
+- Date: 2026-05-17
+- Phase: Main Dashboard command center work
+- Details: `App.jsx:11315` (the `onNavigate` handler passed to `HealthDashboard`) writes only `filterStatus`, which is the legacy filter variable on the Tenants tab. The visible filter pill UI reads from `tenantFilter` (different variable). Result: clicking an Action Item on the Health Dashboard routes to the right tab but the filter pill never highlights. Same root bug as the one fixed in the Main Dashboard's `onNavigate` tonight. Per the "don't touch Health Dashboard" rule for the Main Dashboard work, this was left untouched.
+- Proposed fix: mirror the Main Dashboard's handler (set both `tenantFilter` and `filterStatus`). Single-file edit in `App.jsx`. Phase 10.5 candidate, or a quick standalone fix.
+- Deeper Phase 10.5 candidate: collapse `filterStatus` and `tenantFilter` into a single source of truth on the Tenants tab.
+
 ## [OPEN] extract usePortfolioData base hook shared between dashboards
 
 - Date: 2026-05-17

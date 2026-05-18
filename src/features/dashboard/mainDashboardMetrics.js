@@ -269,3 +269,5 @@ function formatNoi(value) {
   if (abs >= 1000) return sign + '$' + Math.round(abs / 1000) + 'K';
   return sign + '$' + abs.toLocaleString();
 }
+
+// computeDueDates lives in dueDateRows.js to keep this file under 300 lines.

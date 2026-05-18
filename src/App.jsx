@@ -7806,15 +7806,44 @@ function App() {
               {activeTab === 'dashboard' && (
                 <MainDashboard
                   displayName={getUserDisplayName()}
-                  onNavigate={(target) => {
+                  onNavigate={async (target) => {
                     if (!target || !target.tab) return;
+                    // Routing precedence: if a recordId is provided, open
+                    // that record's detail panel. Otherwise apply any
+                    // requested filter. Either way, switch to the target tab.
                     if (target.tab === 'tenants') {
-                      if (target.filter === 'late') setFilterStatus('late');
-                      else if (target.filter === 'prospect') setFilterStatus('prospect');
-                      else setFilterStatus('all');
+                      if (target.recordId != null) {
+                        const tenant = tenants.find(t => t.id === target.recordId);
+                        if (tenant) {
+                          setSelectedTenant(tenant);
+                          try {
+                            const files = await loadFilesForRecord('tenant', tenant.id);
+                            setTenantFiles(files);
+                          } catch (err) {
+                            console.error('[onNavigate] loadFilesForRecord failed:', err);
+                          }
+                        }
+                      } else if (target.filter === 'late') {
+                        setTenantFilter('late');
+                        setFilterStatus('late');
+                      } else if (target.filter === 'prospect') {
+                        setTenantFilter('prospects');
+                        setFilterStatus('prospect');
+                      } else if (target.filter === 'expiring') {
+                        setTenantFilter('expiring');
+                        setFilterStatus('expiring');
+                      } else {
+                        setTenantFilter('all');
+                        setFilterStatus('all');
+                      }
                       setActiveTab('tenants');
                     } else if (target.tab === 'maintenance') {
-                      if (target.filter === 'open') setMaintenanceFilterTab('open');
+                      if (target.recordId != null) {
+                        const request = maintenanceRequests.find(r => r.id === target.recordId);
+                        if (request) setSelectedMaintenanceRequest(request);
+                      } else if (target.filter === 'open') {
+                        setMaintenanceFilterTab('open');
+                      }
                       setActiveTab('maintenance');
                     } else if (target.tab === 'properties') {
                       setActiveTab('properties');
