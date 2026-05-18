@@ -97,7 +97,7 @@ export function WalkthroughItem({
       />
 
       <PhotoCapture
-        photos={item.photos || []}
+        photos={item.checklist_photos || []}
         uploading={uploading}
         onPick={handlePickPhoto}
         onRemove={(photo) => onRemovePhoto(item, photo)}

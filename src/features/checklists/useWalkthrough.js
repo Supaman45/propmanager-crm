@@ -97,30 +97,42 @@ export function useWalkthrough(checklistId) {
     }
   }, [checklistId, saveChecklistItem]);
 
-  // Photo capture. Uploads via existing useChecklists.uploadPhoto then
-  // refetches the affected item's photo list. Failures bubble so the UI
-  // can show a retry button without losing in-memory state.
+  // Photo capture. uploadPhoto returns a public URL but does not insert
+  // the checklist_photos row, so we do that here. Items expose photos
+  // under the checklist_photos key to match the join shape from
+  // fetchChecklist.
   const addPhotoToItem = useCallback(async (item, file) => {
     if (!item || !file) return null;
-    const photo = await uploadPhoto(file, checklistId, item.id);
-    if (photo) {
-      setItems(prev => prev.map(i => {
-        if (i.id !== item.id) return i;
-        const existing = Array.isArray(i.photos) ? i.photos : [];
-        return { ...i, photos: [...existing, photo] };
-      }));
+    const publicUrl = await uploadPhoto(file, checklistId, item.id);
+    if (!publicUrl) return null;
+    const { data: inserted, error: insertError } = await supabase
+      .from('checklist_photos')
+      .insert({ checklist_item_id: item.id, photo_url: publicUrl, caption: '' })
+      .select()
+      .single();
+    if (insertError) {
+      console.error('[useWalkthrough] insert photo row failed:', insertError);
+      throw insertError;
     }
-    return photo;
+    setItems(prev => prev.map(i => {
+      if (i.id !== item.id) return i;
+      const existing = Array.isArray(i.checklist_photos) ? i.checklist_photos : [];
+      return { ...i, checklist_photos: [...existing, inserted] };
+    }));
+    return inserted;
   }, [checklistId, uploadPhoto]);
 
   const removePhotoFromItem = useCallback(async (item, photo) => {
     if (!item || !photo) return;
     setItems(prev => prev.map(i => {
       if (i.id !== item.id) return i;
-      const filtered = (i.photos || []).filter(p => (p.id || p.photo_url) !== (photo.id || photo.photo_url));
-      return { ...i, photos: filtered };
+      const filtered = (i.checklist_photos || []).filter(p => p.id !== photo.id);
+      return { ...i, checklist_photos: filtered };
     }));
     try {
+      if (photo.id) {
+        await supabase.from('checklist_photos').delete().eq('id', photo.id);
+      }
       const url = photo.photo_url || photo.url;
       if (url) await deletePhoto(url);
     } catch (err) {
@@ -139,7 +151,7 @@ export function useWalkthrough(checklistId) {
       item_name: name,
       condition: null,
       notes: '',
-      photos: [],
+      checklist_photos: [],
       sort_order: items.length + idx
     }));
     setItems(prev => [...prev, ...fresh]);
@@ -189,7 +201,7 @@ export function useWalkthrough(checklistId) {
 
   const progress = useMemo(() => {
     const itemsCompleted = items.filter(i => !!i.condition).length;
-    const photosTotal = items.reduce((sum, i) => sum + (Array.isArray(i.photos) ? i.photos.length : 0), 0);
+    const photosTotal = items.reduce((sum, i) => sum + (Array.isArray(i.checklist_photos) ? i.checklist_photos.length : 0), 0);
     return {
       roomsTotal: rooms.length,
       currentRoomIndex,

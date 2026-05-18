@@ -1,21 +1,23 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { colors, spacing, radius, shadow, typography } from '../../shared/styles/tokens.js';
 import SignatureCapture from '../../components/checklists/SignatureCapture.jsx';
 
-// Two-step signing flow used at the end of the walkthrough. Step 1 is the
-// hand-off card (give the phone to the tenant). Step 2 is the tenant
-// signature pad. Step 3 is the PM signature pad. onComplete fires after
-// both signatures land.
+// Four-step signing flow used at the end of the walkthrough. Handoff,
+// tenant signature, PM signature, then PDF generation. onComplete fires
+// after the PDF lands.
 
 const STEP_HANDOFF = 'handoff';
 const STEP_TENANT = 'tenant';
 const STEP_PM = 'pm';
+const STEP_PDF = 'pdf';
 const STEP_DONE = 'done';
 
-export function SignatureHandoff({ onSaveSignature, onComplete, onCancel }) {
+export function SignatureHandoff({ onSaveSignature, onGeneratePdf, onComplete, onCancel }) {
   const [step, setStep] = useState(STEP_HANDOFF);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [pdfError, setPdfError] = useState(null);
+  const [pdfResult, setPdfResult] = useState(null);
 
   const handleSign = async (dataUrl, type) => {
     setBusy(true);
@@ -23,7 +25,7 @@ export function SignatureHandoff({ onSaveSignature, onComplete, onCancel }) {
     try {
       await onSaveSignature(dataUrl, type);
       if (type === 'tenant') setStep(STEP_PM);
-      else if (type === 'inspector') setStep(STEP_DONE);
+      else if (type === 'inspector') setStep(STEP_PDF);
     } catch (err) {
       console.error('[SignatureHandoff] save failed:', err);
       setError(err.message || 'Could not save the signature. Try again.');
@@ -32,11 +34,58 @@ export function SignatureHandoff({ onSaveSignature, onComplete, onCancel }) {
     }
   };
 
+  // Auto-run the PDF step when we land on it. PM doesn't need a button
+  // press to generate the document, but they do need feedback that it
+  // happened and a retry path if it failed.
+  useEffect(() => {
+    if (step !== STEP_PDF) return;
+    let cancelled = false;
+    setPdfError(null);
+    setBusy(true);
+    (async () => {
+      try {
+        const result = await onGeneratePdf();
+        if (!cancelled) {
+          setPdfResult(result);
+          setStep(STEP_DONE);
+        }
+      } catch (err) {
+        console.error('[SignatureHandoff] pdf failed:', err);
+        if (!cancelled) setPdfError(err.message || 'Could not generate the PDF.');
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [step, onGeneratePdf]);
+
+  if (step === STEP_PDF) {
+    return (
+      <SignatureScreen title="Saving PDF" subtitle="Generating the signed inspection report and uploading to storage.">
+        {pdfError ? (
+          <>
+            <ErrorBanner message={pdfError} />
+            <button type="button" onClick={() => { setPdfError(null); setStep(STEP_PDF); }} style={primaryButton()}>
+              Try again
+            </button>
+            <button type="button" onClick={onCancel} style={secondaryButton()}>
+              Close without PDF
+            </button>
+          </>
+        ) : (
+          <div style={{ fontSize: typography.sizes.sm, color: colors.neutral[500] }}>
+            {busy ? 'Working' : 'Done'}
+          </div>
+        )}
+      </SignatureScreen>
+    );
+  }
+
   if (step === STEP_DONE) {
     return (
       <SignatureScreen
         title="Inspection complete"
-        subtitle="Generating PDF and uploading"
+        subtitle={pdfResult ? `Saved as ${pdfResult.filename} and downloaded to your device.` : 'Signed and complete.'}
       >
         <button
           type="button"

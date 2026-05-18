@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { colors, spacing, radius, typography } from '../../shared/styles/tokens.js';
+import { supabase } from '../../lib/supabase.js';
 import { useWalkthrough } from './useWalkthrough.js';
 import { WalkthroughProgress } from './WalkthroughProgress.jsx';
 import { WalkthroughRoom } from './WalkthroughRoom.jsx';
 import { WalkthroughItem } from './WalkthroughItem.jsx';
 import { WalkthroughSummary } from './WalkthroughSummary.jsx';
 import { SignatureHandoff } from './SignatureHandoff.jsx';
+import { generateAndUploadWalkthroughPDF } from './pdfGenerator.js';
 
 // Full-screen mobile-first walkthrough shell. Hides the surrounding app
 // chrome by rendering as a fixed overlay at z-index 100. State-only, no
@@ -66,6 +68,43 @@ export default function ChecklistWalkthrough({ checklistId, open, onClose }) {
   const goToSigning = () => setStage(STAGE_SIGNING);
   const goBackToInspecting = () => setStage(STAGE_INSPECTING);
 
+  // Lazy-load just the property and tenant rows needed for the PDF cover.
+  // Kept local so the walkthrough hook doesn't have to know about them.
+  const fetchPdfContext = useCallback(async () => {
+    if (!w.checklist) return { properties: [], tenants: [] };
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { properties: [], tenants: [] };
+    const propertyId = w.checklist.property_id;
+    const tenantId = w.checklist.tenant_id;
+    const [propRes, tenantRes] = await Promise.all([
+      propertyId
+        ? supabase.from('properties').select('*').eq('id', propertyId).maybeSingle()
+        : Promise.resolve({ data: null }),
+      tenantId
+        ? supabase.from('tenants').select('*').eq('id', tenantId).maybeSingle()
+        : Promise.resolve({ data: null })
+    ]);
+    return {
+      properties: propRes.data ? [propRes.data] : [],
+      tenants: tenantRes.data ? [tenantRes.data] : []
+    };
+  }, [w.checklist]);
+
+  const handleGeneratePdf = useCallback(async () => {
+    if (!w.checklist) throw new Error('Checklist not loaded');
+    const { properties, tenants } = await fetchPdfContext();
+    const result = await generateAndUploadWalkthroughPDF({
+      checklist: w.checklist,
+      items: w.items,
+      properties,
+      tenants
+    });
+    if (result && result.storagePath) {
+      await w.setPdfPath(result.storagePath);
+    }
+    return result;
+  }, [w.checklist, w.items, w.setPdfPath, fetchPdfContext]);
+
   const handleSignaturesComplete = async () => {
     try {
       await w.markComplete();
@@ -95,6 +134,7 @@ export default function ChecklistWalkthrough({ checklistId, open, onClose }) {
         <WalkthroughProgress progress={w.progress} onClose={onClose} />
         <SignatureHandoff
           onSaveSignature={(dataUrl, type) => w.saveSignature(dataUrl, type)}
+          onGeneratePdf={handleGeneratePdf}
           onComplete={handleSignaturesComplete}
           onCancel={goBackToInspecting}
         />
