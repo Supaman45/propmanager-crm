@@ -2,8 +2,18 @@ import { colors, spacing, radius, shadow, typography } from '../../shared/styles
 import { useMainDashboard } from './useMainDashboard.js';
 import { timeOfDayGreeting, formatHeaderDate } from './mainDashboardMetrics.js';
 import { KPICard } from '../reports/KPICard.jsx';
+import { ActionItem } from '../reports/ActionItem.jsx';
+import { CalendarIcon, AlertIcon, WrenchIcon, HomeIcon, UserIcon, CheckCircleIcon } from '../reports/icons.jsx';
 import { DueDatesPanel } from './DueDatesPanel.jsx';
 import { MainDashboardCharts } from './MainDashboardCharts.jsx';
+
+const ACTION_ICONS = {
+  wrench: WrenchIcon,
+  calendar: CalendarIcon,
+  alert: AlertIcon,
+  home: HomeIcon,
+  user: UserIcon
+};
 
 // Operator command center. Greeting + the single most important thing to
 // do today at the top, then KPI strip, Due Dates panel, YoY charts,
@@ -147,10 +157,50 @@ export default function MainDashboard({ displayName, onNavigate }) {
         />
       </div>
 
-      <SectionPlaceholder title="Action items" note="Top 3-5 things to act on, sorted by impact." />
+      <ActionItemsSection items={data.actionItems || []} onNavigate={onNavigate} />
 
       <SectionPlaceholder title="Recent activity" note="Last 5 maintenance updates, payments, messages." />
     </div>
+  );
+}
+
+function ActionItemsSection({ items, onNavigate }) {
+  return (
+    <section style={{
+      background: colors.surface.background,
+      border: `1px solid ${colors.surface.border}`,
+      borderRadius: radius.lg,
+      boxShadow: shadow.sm,
+      overflow: 'hidden'
+    }}>
+      <header style={{ padding: `${spacing.lg}px ${spacing.xl}px`, borderBottom: items.length > 0 ? `1px solid ${colors.surface.border}` : 'none' }}>
+        <h3 style={{ margin: 0, fontSize: typography.sizes.lg, fontWeight: typography.weights.semibold, color: colors.neutral[900] }}>
+          Action items
+        </h3>
+        <p style={{ margin: `${spacing.xs}px 0 0`, fontSize: typography.sizes.sm, color: colors.neutral[500] }}>
+          Top {items.length} {items.length === 1 ? 'thing' : 'things'} to act on, sorted by impact
+        </p>
+      </header>
+      {items.length === 0 ? (
+        <div style={{ padding: spacing['2xl'], textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: spacing.sm, color: colors.neutral[500] }}>
+          <CheckCircleIcon size={32} color={colors.status.success} />
+          <div style={{ fontSize: typography.sizes.base }}>Nothing needs your attention right now</div>
+        </div>
+      ) : (
+        <div>
+          {items.map((item, idx) => (
+            <ActionItem
+              key={item.kind + '-' + idx}
+              icon={ACTION_ICONS[item.iconName] || AlertIcon}
+              label={item.label}
+              count={item.count}
+              tone={item.tone}
+              onClick={() => onNavigate && onNavigate(item.navTarget)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

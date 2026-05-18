@@ -61,11 +61,14 @@ export function computeMostImportantItem(data, now = new Date()) {
     };
   }
 
-  // 3. Tenants more than 5 days late on rent. We use status="late" plus
-  // a heuristic of "today is past the 5th of the month" since the rent
-  // due date itself isn't stored per tenant in this schema.
+  // 3. Tenants more than 5 days late on rent. Uses the same "late"
+  // definition as the Tenants tab (status current, paymentStatus late)
+  // plus a heuristic of "today is past the 5th of the month" since the
+  // rent due date itself isn't stored per tenant in this schema.
   if (now.getDate() > 5) {
-    const lateTenants = tenants.filter(t => t.status === 'late');
+    const lateTenants = tenants.filter(t =>
+      (t.status === 'current' || t.status === 'Current') && t.paymentStatus === 'late'
+    );
     if (lateTenants.length > 0) {
       return {
         level: 'warning',

@@ -51,6 +51,21 @@ Statuses: `OPEN`, `RESOLVED`, `WONTFIX`, `NOTED`.
 - Details: `add-owner-portal-migration.sql:23` declares `owner_statements.property_id UUID REFERENCES properties(id)`, but `properties.id` is `BIGINT` (`database-schema.sql:37`). The foreign key cannot resolve, so any insert into `owner_statements` with a real `property_id` will fail. The table is effectively unwritable until the column type is fixed. Discovered while building the 500-door demo generator — `owner_statements` was skipped entirely as a result.
 - Proposed fix: Migration to change `owner_statements.property_id` from `UUID` to `BIGINT` and re-add the foreign key. Coordinate with whatever UI is supposed to write to this table (owner statement generation flow) before deploying.
 
+## [OPEN] Tenant lateness definition mismatch
+
+- Date: 2026-05-17
+- Phase: Main Dashboard command center work
+- Details: Two definitions for one concept.
+  - `tenants` table has a `status` field with values 'current', 'late', 'past', 'prospect' (per the 500-door demo generator). 'late' is a top-level status.
+  - The Tenants tab's Late filter (App.jsx:1645, 8098, 2866, 3741, 3850, etc.) treats "late" as a sub-state: `(t.status === 'current' || t.status === 'Current') && t.paymentStatus === 'late'`. Late is a property of a Current tenant who hasn't paid this month.
+  - The 500-door demo generator writes `status='late'` AND `payment_status='late'` for the 98 "late" tenants, so the Tenants tab Late pill filter matches zero rows (`status='current'` excludes them), and the Late kanban column shows empty.
+  - Main Dashboard counted late tenants by `t.status === 'late'` (the field as written by the generator), so the action item said "98 tenants late on rent" while the Tenants tab said "Late (0)".
+- Resolution this commit: Main Dashboard `computeActionItems`, `computeMostImportantItem`, and `computeDueDates` now use the Tenants tab's `current + paymentStatus=late` convention so the count matches and the click-through lands on a populated list. With the current demo data the count drops to 0 and the action item correctly hides.
+- Phase 10.5 candidate: pick one definition and align everything.
+  - Option A: Fix the demo generator to write `status='current'` with `paymentStatus='late'` for late tenants. Lowest-risk, demo data update only.
+  - Option B: Promote 'late' to a real top-level status across the app, update the Tenants tab kanban and filters. Higher-risk, touches many files.
+  - Lean Option A.
+
 ## [OPEN] No back affordance from detail panels
 
 - Date: 2026-05-17
