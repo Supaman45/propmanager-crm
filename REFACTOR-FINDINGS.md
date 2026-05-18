@@ -51,6 +51,14 @@ Statuses: `OPEN`, `RESOLVED`, `WONTFIX`, `NOTED`.
 - Details: `add-owner-portal-migration.sql:23` declares `owner_statements.property_id UUID REFERENCES properties(id)`, but `properties.id` is `BIGINT` (`database-schema.sql:37`). The foreign key cannot resolve, so any insert into `owner_statements` with a real `property_id` will fail. The table is effectively unwritable until the column type is fixed. Discovered while building the 500-door demo generator — `owner_statements` was skipped entirely as a result.
 - Proposed fix: Migration to change `owner_statements.property_id` from `UUID` to `BIGINT` and re-add the foreign key. Coordinate with whatever UI is supposed to write to this table (owner statement generation flow) before deploying.
 
+## [OPEN] checklist PDF upload sometimes writes wrong storage path / skips DB update
+
+- Date: 2026-05-17
+- Phase: Checklists v1 walkthrough work
+- Details: During end-to-end testing of the walkthrough → PDF flow, the PDF file downloads to disk correctly via `src/utils/generateChecklistPDF.js`, but the new `src/features/checklists/pdfGenerator.js` upload-to-storage path is inconsistent. On at least one test run the upload landed in a folder for a different `checklist_id` than the row being signed, and the subsequent `inspection_checklists.pdf_storage_path` update never landed for the current row. One row (`ee824857`) has a path written; the row from the most recent walkthrough (`52d20519`) still shows NULL. Not a blocker for the prospect demo since the PDF still downloads from the jspdf path, but the durable copy in `checklist-pdfs` is incomplete.
+- Suspected cause: the closure inside `generateAndUploadWalkthroughPDF` captures the checklist row at the moment the PDF JSX is constructed, while the PM signature `setStatus('signed')` + the `setPdfPath` update may race against each other. Worth instrumenting both writes with a `console.log` of `checklist.id` to confirm.
+- Proposed fix: add explicit `[pdfGenerator]` logs around the upload `storagePath` and the `setPdfPath` call so we can see which checklist id each write targets, then either pass the id explicitly through the call chain or `await` `setPdfPath` before kicking off the next status transition.
+
 ## [RESOLVED] inspection_checklists.status dropdown writes invalid value
 
 - Date: 2026-05-17

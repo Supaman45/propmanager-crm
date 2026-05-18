@@ -2,13 +2,17 @@ import { colors, spacing, radius, typography } from '../../shared/styles/tokens.
 
 // Five-state condition picker. Tap targets at least 48px tall for thumb use.
 // Selected state uses the condition color, unselected uses a neutral border.
+//
+// Values are stored lowercase to satisfy the checklist_items_condition_check
+// DB constraint (excellent, good, fair, poor, damaged, missing, na). Labels
+// are displayed capitalized.
 
 const CONDITIONS = [
-  { value: 'Excellent', color: colors.status.success },
-  { value: 'Good', color: '#34d399' },
-  { value: 'Fair', color: colors.status.warning },
-  { value: 'Poor', color: '#fb923c' },
-  { value: 'Damaged', color: colors.status.danger }
+  { value: 'excellent', label: 'Excellent', color: colors.status.success },
+  { value: 'good', label: 'Good', color: '#34d399' },
+  { value: 'fair', label: 'Fair', color: colors.status.warning },
+  { value: 'poor', label: 'Poor', color: '#fb923c' },
+  { value: 'damaged', label: 'Damaged', color: colors.status.danger }
 ];
 
 export function ConditionPicker({ value, onChange, disabled }) {
@@ -50,7 +54,7 @@ export function ConditionPicker({ value, onChange, disabled }) {
               textAlign: 'center'
             }}
           >
-            {opt.value}
+            {opt.label}
           </button>
         );
       })}
@@ -59,6 +63,15 @@ export function ConditionPicker({ value, onChange, disabled }) {
 }
 
 export function conditionColor(value) {
-  const match = CONDITIONS.find(c => c.value === value);
+  if (!value) return colors.neutral[300];
+  const normalized = String(value).toLowerCase();
+  const match = CONDITIONS.find(c => c.value === normalized);
   return match ? match.color : colors.neutral[300];
+}
+
+export function conditionLabel(value) {
+  if (!value) return 'Not set';
+  const normalized = String(value).toLowerCase();
+  const match = CONDITIONS.find(c => c.value === normalized);
+  return match ? match.label : normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }

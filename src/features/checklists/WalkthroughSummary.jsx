@@ -1,5 +1,5 @@
 import { colors, spacing, radius, shadow, typography } from '../../shared/styles/tokens.js';
-import { conditionColor } from './ConditionPicker.jsx';
+import { conditionColor, conditionLabel } from './ConditionPicker.jsx';
 
 // End-of-walkthrough recap. Shows counts of rooms inspected, items
 // completed, photos taken, and a condition breakdown so the PM can spot
@@ -7,8 +7,10 @@ import { conditionColor } from './ConditionPicker.jsx';
 // flow via onGetSignatures.
 
 export function WalkthroughSummary({ progress, items, onBack, onGetSignatures }) {
+  // Normalize to lowercase so legacy mixed-case rows (e.g. "Good" vs "good")
+  // tally into a single bucket rather than splitting.
   const conditionTally = items.reduce((acc, item) => {
-    const key = item.condition || 'Not set';
+    const key = item.condition ? String(item.condition).toLowerCase() : 'not set';
     acc[key] = (acc[key] || 0) + 1;
     return acc;
   }, {});
@@ -66,9 +68,9 @@ export function WalkthroughSummary({ progress, items, onBack, onGetSignatures })
               width: 12,
               height: 12,
               borderRadius: radius.full,
-              background: conditionColor(condition === 'Not set' ? null : condition)
+              background: conditionColor(condition === 'not set' ? null : condition)
             }} />
-            <span style={{ flex: 1, fontSize: typography.sizes.base, color: colors.neutral[900] }}>{condition}</span>
+            <span style={{ flex: 1, fontSize: typography.sizes.base, color: colors.neutral[900] }}>{conditionLabel(condition === 'not set' ? null : condition)}</span>
             <span style={{ fontSize: typography.sizes.base, color: colors.neutral[700], fontWeight: typography.weights.semibold }}>{count}</span>
           </div>
         ))}
