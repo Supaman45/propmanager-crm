@@ -3,6 +3,7 @@ import { colors, spacing, radius, typography } from '../../shared/styles/tokens.
 import { useWalkthrough } from './useWalkthrough.js';
 import { WalkthroughProgress } from './WalkthroughProgress.jsx';
 import { WalkthroughRoom } from './WalkthroughRoom.jsx';
+import { WalkthroughItem } from './WalkthroughItem.jsx';
 
 // Full-screen mobile-first walkthrough shell. Hides the surrounding app
 // chrome by rendering as a fixed overlay at z-index 100. State-only, no
@@ -86,22 +87,17 @@ export default function ChecklistWalkthrough({ checklistId, open, onClose }) {
           onAddRoom={() => setShowAddRoom(true)}
         >
           {w.currentRoomItems.map(item => (
-            <div
+            <WalkthroughItem
               key={item.id}
-              style={{
-                background: colors.surface.background,
-                border: `1px solid ${colors.surface.border}`,
-                borderRadius: radius.lg,
-                padding: spacing.lg,
-                fontSize: typography.sizes.base,
-                color: colors.neutral[900]
-              }}
-            >
-              <div style={{ fontWeight: typography.weights.semibold }}>{item.item_name}</div>
-              <div style={{ marginTop: spacing.xs, fontSize: typography.sizes.xs, color: colors.neutral[500] }}>
-                Condition picker and photo capture land in the next commit.
-              </div>
-            </div>
+              item={item}
+              saving={w.savingItemIds.has(item.id)}
+              onChange={w.updateItem}
+              onAddPhoto={w.addPhotoToItem}
+              onRemovePhoto={w.removePhotoFromItem}
+              failedUploads={[]}
+              onRetryUploads={() => {}}
+              onClearFailures={() => {}}
+            />
           ))}
         </WalkthroughRoom>
       )}
