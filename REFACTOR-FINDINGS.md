@@ -51,6 +51,13 @@ Statuses: `OPEN`, `RESOLVED`, `WONTFIX`, `NOTED`.
 - Details: `add-owner-portal-migration.sql:23` declares `owner_statements.property_id UUID REFERENCES properties(id)`, but `properties.id` is `BIGINT` (`database-schema.sql:37`). The foreign key cannot resolve, so any insert into `owner_statements` with a real `property_id` will fail. The table is effectively unwritable until the column type is fixed. Discovered while building the 500-door demo generator — `owner_statements` was skipped entirely as a result.
 - Proposed fix: Migration to change `owner_statements.property_id` from `UUID` to `BIGINT` and re-add the foreign key. Coordinate with whatever UI is supposed to write to this table (owner statement generation flow) before deploying.
 
+## [OPEN] extract usePortfolioData base hook shared between dashboards
+
+- Date: 2026-05-17
+- Phase: Main Dashboard command center work
+- Details: `src/features/dashboard/useMainDashboard.js` and `src/features/reports/useHealthDashboard.js` both fetch the same four tables (tenants, properties, maintenance_requests, tenant_applications) with identical filter and shape. The Main Dashboard work duplicates the fetch on purpose to keep the Reports surface untouched, but this is real duplication and a future second consumer (e.g. an owner-side dashboard) would triple it.
+- Proposed fix: pull a shared `usePortfolioData` hook into `src/shared/hooks/` that returns the raw four-table snapshot, and let each feature hook layer derivations on top. Phase 9 candidate per PROPLI-REFACTOR.md.
+
 ## [OPEN] checklist PDF upload sometimes writes wrong storage path / skips DB update
 
 - Date: 2026-05-17
